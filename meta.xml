@@ -2,15 +2,10 @@
 <app version="1">
   <name>ioquake3</name>
   <coder>ioquake3-wii contributors</coder>
-  <version>0.4.0</version>
-  <release_date>20260427000000</release_date>
-  <short_description>Quake III Arena (ioQuake3) for Wii</short_description>
+  <version>0.9.0</version>
+  <release_date>20260520000000</release_date>
+  <short_description>Quake III Arena</short_description>
   <long_description>
-    ioQuake3 Wii port via devkitPPC + libogc + OpenGX.
-    Requires Quake III Arena data files (pak0.pk3 - pak8.pk3)
-    placed at sd:/quake3/baseq3/.
-
-    Supports GameCube controller, Wiimote + Nunchuk (IR aiming),
-    USB keyboard, and USB mouse. All inputs active simultaneously.
+    ioQuake3 Wii port
   </long_description>
 </app>

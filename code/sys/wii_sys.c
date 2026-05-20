@@ -38,71 +38,19 @@ void Sys_Quit(void)
 
 int Sys_Milliseconds(void)
 {
-    static int     s_check     = 0;
-    static qboolean s_pad_inited = qfalse;
-    int ms = (int)ticks_to_millisecs(gettime());
+    static u64      s_base_ticks = 0;
+    static qboolean s_base_set   = qfalse;
 
-    /* Emergency exit + basic GC pad input (polled every 500th call) */
-    if (++s_check >= 500) {
-        s_check = 0;
-
-        if (!s_pad_inited) {
-            PAD_Init();
-            s_pad_inited = qtrue;
-        }
-        PAD_ScanPads();
-
-        if (PAD_ButtonsDown(0) & PAD_BUTTON_START) {
-            exit(0);
-        }
-
-        {
-            s8 lx = PAD_StickX(0);
-            s8 ly = PAD_StickY(0);
-            s8 cx = PAD_SubStickX(0);
-            s8 cy = PAD_SubStickY(0);
-
-            #define DEAD 20
-
-            {
-                int dx = 0, dy = 0;
-                if (cx > DEAD || cx < -DEAD) dx = (cx * 12) / 8;
-                if (cy > DEAD || cy < -DEAD) dy = -(cy * 12) / 8;
-                if (dx >  200) dx =  200;
-                if (dx < -200) dx = -200;
-                if (dy >  200) dy =  200;
-                if (dy < -200) dy = -200;
-                if (dx || dy) {
-                    Com_QueueEvent(0, SE_MOUSE, dx, dy, 0, NULL);
-                    Com_EventLoop();
-                }
-            }
-
-            {
-                static qboolean s_fwd, s_back, s_left, s_right;
-                qboolean fwd   = ly >  DEAD;
-                qboolean back  = ly < -DEAD;
-                qboolean left  = lx < -DEAD;
-                qboolean right = lx >  DEAD;
-                if (fwd   != s_fwd)   { Com_QueueEvent(0, SE_KEY, K_UPARROW,    fwd,   0, NULL); s_fwd   = fwd;   }
-                if (back  != s_back)  { Com_QueueEvent(0, SE_KEY, K_DOWNARROW,  back,  0, NULL); s_back  = back;  }
-                if (left  != s_left)  { Com_QueueEvent(0, SE_KEY, K_LEFTARROW,  left,  0, NULL); s_left  = left;  }
-                if (right != s_right) { Com_QueueEvent(0, SE_KEY, K_RIGHTARROW, right, 0, NULL); s_right = right; }
-                Com_EventLoop();
-            }
-
-            u32 down = PAD_ButtonsDown(0);
-            u32 up   = PAD_ButtonsUp(0);
-            if (down & PAD_BUTTON_A)     { Com_QueueEvent(0, SE_KEY, K_MOUSE1,  qtrue,  0, NULL); Com_EventLoop(); }
-            if (up   & PAD_BUTTON_A)     { Com_QueueEvent(0, SE_KEY, K_MOUSE1,  qfalse, 0, NULL); Com_EventLoop(); }
-            if (down & PAD_BUTTON_B)     { Com_QueueEvent(0, SE_KEY, K_ESCAPE,  qtrue,  0, NULL); Com_EventLoop(); }
-            if (up   & PAD_BUTTON_B)     { Com_QueueEvent(0, SE_KEY, K_ESCAPE,  qfalse, 0, NULL); Com_EventLoop(); }
-            if (down & PAD_BUTTON_X)     { Com_QueueEvent(0, SE_KEY, K_SPACE,   qtrue,  0, NULL); Com_EventLoop(); }
-            if (up   & PAD_BUTTON_X)     { Com_QueueEvent(0, SE_KEY, K_SPACE,   qfalse, 0, NULL); Com_EventLoop(); }
-            if (down & PAD_TRIGGER_Z)    { Com_QueueEvent(0, SE_KEY, K_SPACE,   qtrue,  0, NULL); Com_EventLoop(); }
-            if (up   & PAD_TRIGGER_Z)    { Com_QueueEvent(0, SE_KEY, K_SPACE,   qfalse, 0, NULL); Com_EventLoop(); }
-        }
+    if (!s_base_set) {
+        s_base_ticks = gettime();
+        s_base_set   = qtrue;
     }
+
+    /* Compute elapsed ms from a base captured on first call so the result
+     * always fits in a positive 32-bit int (avoids the (int) truncation that
+     * wraps absolute gettime() into a negative number on Wii). */
+    int ms = (int)ticks_to_millisecs(gettime() - s_base_ticks);
+
     return ms;
 }
 
@@ -370,6 +318,9 @@ extern sfxHandle_t S_Base_RegisterSound(const char *sample, qboolean compressed)
 extern void     S_Base_BeginRegistration(void);
 extern void     S_Base_ClearSoundBuffer(void);
 extern void     S_Base_DisableSounds(void);
+extern void     S_Base_StartBackgroundTrack(const char *intro, const char *loop);
+extern void     S_Base_StopBackgroundTrack(void);
+extern void     S_Base_Update(void);
 
 /* Cvars normally owned by snd_main.c (not compiled on Wii) */
 cvar_t *s_volume;
@@ -405,7 +356,7 @@ void S_Shutdown(void)
     Wii_Snd_Shutdown();
     Com_Memset(&s_snd_if, 0, sizeof(s_snd_if));
 }
-void        S_Update(void)                                             { S_Update_(); }
+void        S_Update(void)                                             { S_Base_Update(); }
 void        S_BeginRegistration(void)                                  { S_Base_BeginRegistration(); }
 sfxHandle_t S_RegisterSound(const char *n, qboolean comp)             { return S_Base_RegisterSound(n, comp); }
 void        S_StartSound(vec3_t o,int n,int c,sfxHandle_t h)          { S_Base_StartSound(o,n,c,h); }
@@ -419,8 +370,8 @@ void        S_UpdateEntityPosition(int n,const vec3_t o)              { S_Base_U
 void        S_Respatialize(int n,const vec3_t o,vec3_t ax[3],int i)   { S_Base_Respatialize(n,o,ax,i); }
 void        S_ClearSoundBuffer(void)                                   { S_Base_ClearSoundBuffer(); }
 void        S_DisableSounds(void)                                      { S_Base_DisableSounds(); }
-void        S_StartBackgroundTrack(const char *i,const char *l)       { (void)i;(void)l; }
-void        S_StopBackgroundTrack(void)                                { }
+void        S_StartBackgroundTrack(const char *i,const char *l)       { S_Base_StartBackgroundTrack(i,l); }
+void        S_StopBackgroundTrack(void)                                { S_Base_StopBackgroundTrack(); }
 extern void S_Base_RawSamples(int stream, int samples, int rate, int width, int s_channels, const byte *data, float volume, int entityNum);
 void        S_RawSamples(int stream,int samples,int rate,int width,int channels,const byte *d,float v,int e){ S_Base_RawSamples(stream,samples,rate,width,channels,d,v,e); }
 
@@ -629,7 +580,9 @@ void *wii_mem2_alloc(size_t size)
     return NULL;
 }
 
-/* Route calloc >= 16 MB to MEM2 bump allocator (only hunk calls this large) */
+/* Route large calloc to MEM2 bump allocator.
+ * Threshold is 16 MB so the Q3 hunk (32 MB) lands in MEM2 bump while the
+ * zone (~8 MB) and smaller allocs stay on the sbrk heap. */
 extern void *__real_calloc(size_t nmemb, size_t size);
 
 void *__wrap_calloc(size_t nmemb, size_t size)

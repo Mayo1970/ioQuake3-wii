@@ -23,15 +23,16 @@
 extern int  Key_GetCatcher(void);
 extern void Key_SetBinding(int keynum, const char *binding);
 
-#define STICK_DEADZONE       20
+#define STICK_DEADZONE       20   /* left stick */
+#define CSTICK_DEADZONE      50   /* C-stick — wider to cover hardware drift */
 #define MENU_SENSITIVITY_F   2.0f
 #define TRIGGER_THRESHOLD    100
 
-/* Axis indices matching j_*_axis cvars in wii_main.c */
+/* Axis indices — left stick: 0/1, right stick (C-stick): 4/3 */
 #define AXIS_SIDE     0
 #define AXIS_FORWARD  1
-#define AXIS_PITCH    3
 #define AXIS_YAW      4
+#define AXIS_PITCH    3
 
 /* GC stick +-127 -> Q3 joystick +-32767 */
 #define GC_AXIS_SCALE  258
@@ -102,6 +103,40 @@ static const btn_map_t s_wm_menu_buttons[] = {
 };
 #define WM_MENU_BTN_COUNT (sizeof(s_wm_menu_buttons) / sizeof(s_wm_menu_buttons[0]))
 
+/* Classic Controller in-game buttons */
+static const btn_map_t s_cc_buttons[] = {
+    { WPAD_CLASSIC_BUTTON_ZR,      K_JOY1  },   /* ZR = fire */
+    { WPAD_CLASSIC_BUTTON_A,       K_JOY2  },   /* A = jump */
+    { WPAD_CLASSIC_BUTTON_B,       K_JOY3  },   /* B = crouch */
+    { WPAD_CLASSIC_BUTTON_ZL,      K_JOY4  },   /* ZL = zoom */
+    { WPAD_CLASSIC_BUTTON_X,       K_JOY5  },   /* X = weapprev */
+    { WPAD_CLASSIC_BUTTON_Y,       K_JOY6  },   /* Y = weapnext */
+    { WPAD_CLASSIC_BUTTON_FULL_L,  K_JOY7  },   /* L = walk */
+    { WPAD_CLASSIC_BUTTON_FULL_R,  K_JOY8  },   /* R = use */
+    { WPAD_CLASSIC_BUTTON_PLUS,    K_JOY9  },   /* + = menu */
+    { WPAD_CLASSIC_BUTTON_MINUS,   K_JOY10 },   /* - = scores */
+    { WPAD_CLASSIC_BUTTON_UP,      K_JOY11 },   /* D-up = weapnext */
+    { WPAD_CLASSIC_BUTTON_DOWN,    K_JOY12 },   /* D-down = weapprev */
+    { WPAD_CLASSIC_BUTTON_LEFT,    K_JOY13 },   /* D-left = spare */
+    { WPAD_CLASSIC_BUTTON_RIGHT,   K_JOY14 },   /* D-right = spare */
+};
+#define CC_BTN_COUNT (sizeof(s_cc_buttons) / sizeof(s_cc_buttons[0]))
+
+static const btn_map_t s_cc_menu_buttons[] = {
+    { WPAD_CLASSIC_BUTTON_A,       K_ENTER      },
+    { WPAD_CLASSIC_BUTTON_B,       K_ESCAPE     },
+    { WPAD_CLASSIC_BUTTON_PLUS,    K_ESCAPE     },
+    { WPAD_CLASSIC_BUTTON_ZR,      K_MOUSE1     },
+    { WPAD_CLASSIC_BUTTON_UP,      K_UPARROW    },
+    { WPAD_CLASSIC_BUTTON_DOWN,    K_DOWNARROW  },
+    { WPAD_CLASSIC_BUTTON_LEFT,    K_LEFTARROW  },
+    { WPAD_CLASSIC_BUTTON_RIGHT,   K_RIGHTARROW },
+};
+#define CC_MENU_BTN_COUNT (sizeof(s_cc_menu_buttons) / sizeof(s_cc_menu_buttons[0]))
+
+#define CC_STICK_DEADZONE   0.15f   /* magnitude below which stick is ignored */
+#define CC_STICK_SCALE      32767.0f
+
 /* IR aiming constants */
 #define IR_CENTER_X       320.0f
 #define IR_CENTER_Y       240.0f
@@ -134,12 +169,14 @@ static qboolean       s_old_rtrig      = qfalse;
 static qboolean       s_bindings_set   = qfalse;
 
 #if WPAD_ENABLED
-static qboolean       s_wm_bindings_set = qfalse;
-static float          s_ir_last_x       = IR_CENTER_X;
-static float          s_ir_last_y       = IR_CENTER_Y;
-static qboolean       s_ir_was_valid    = qfalse;
+static qboolean       s_wm_bindings_set  = qfalse;
+static qboolean       s_cc_bindings_set  = qfalse;
+static qboolean       s_cc_fmt_triggered = qfalse;  /* have we re-triggered format for CC? */
+static float          s_ir_last_x        = IR_CENTER_X;
+static float          s_ir_last_y        = IR_CENTER_Y;
+static qboolean       s_ir_was_valid     = qfalse;
 #ifdef WII_DEBUG
-static int            s_wpad_diag_count = 0;
+static int            s_wpad_diag_count  = 0;
 #endif
 #endif
 
@@ -166,6 +203,11 @@ static void ReleaseAllKeys(void)
     }
     s_accum_x  = s_accum_y  = 0.0f;
     s_accum_cx = s_accum_cy = 0.0f;
+    /* Zero all axes in the engine so stale values don't persist across state transitions */
+    Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_SIDE,    0, 0, NULL);
+    Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_FORWARD, 0, 0, NULL);
+    Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_YAW,     0, 0, NULL);
+    Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_PITCH,   0, 0, NULL);
     s_old_axis[0] = s_old_axis[1] = s_old_axis[2] = s_old_axis[3] = 0;
 }
 
@@ -179,13 +221,13 @@ static short GC_FilterAxis(s8 raw, int deadzone)
     return (short)(v * GC_AXIS_SCALE);
 }
 
-static void InjectCursorStick(s8 x, s8 y, float sensitivity,
+static void InjectCursorStick(s8 x, s8 y, float sensitivity, int deadzone,
                                float *ax, float *ay)
 {
     int ix = (int)x;
     int iy = (int)y;
-    if (ix > -STICK_DEADZONE && ix < STICK_DEADZONE) ix = 0;
-    if (iy > -STICK_DEADZONE && iy < STICK_DEADZONE) iy = 0;
+    if (ix > -deadzone && ix < deadzone) ix = 0;
+    if (iy > -deadzone && iy < deadzone) iy = 0;
     if (ix == 0 && iy == 0) { *ax = *ay = 0.0f; return; }
 
     *ax += ((float)ix / 127.0f) * sensitivity;
@@ -245,6 +287,32 @@ static void SetWiimoteBindings(void)
 }
 #endif
 
+/* ---------- Classic Controller bindings ---------- */
+
+#if WPAD_ENABLED
+static void SetClassicBindings(void)
+{
+    if (s_cc_bindings_set)
+        return;
+    s_cc_bindings_set = qtrue;
+
+    Key_SetBinding(K_JOY1,  "+attack");     /* ZR = fire */
+    Key_SetBinding(K_JOY2,  "+moveup");     /* A = jump */
+    Key_SetBinding(K_JOY3,  "+movedown");   /* B = crouch */
+    Key_SetBinding(K_JOY4,  "+zoom");       /* ZL = zoom */
+    Key_SetBinding(K_JOY5,  "weapprev");    /* X */
+    Key_SetBinding(K_JOY6,  "weapnext");    /* Y */
+    Key_SetBinding(K_JOY7,  "+speed");      /* L = walk */
+    Key_SetBinding(K_JOY8,  "+button2");    /* R = use item */
+    Key_SetBinding(K_JOY9,  "togglemenu");  /* + */
+    Key_SetBinding(K_JOY10, "+scores");     /* - */
+    Key_SetBinding(K_JOY11, "weapnext");    /* D-up */
+    Key_SetBinding(K_JOY12, "weapprev");    /* D-down */
+    Key_SetBinding(K_JOY13, "weapprev");    /* D-left */
+    Key_SetBinding(K_JOY14, "weapnext");    /* D-right */
+}
+#endif
+
 /* ---------- GC controller frame ---------- */
 
 static void GC_Input_Frame(void)
@@ -275,9 +343,9 @@ static void GC_Input_Frame(void)
 
         InjectKey(K_MOUSE1, r_ana > TRIGGER_THRESHOLD ? qtrue : qfalse);
 
-        InjectCursorStick(lx, ly, MENU_SENSITIVITY_F,
+        InjectCursorStick(lx, ly, MENU_SENSITIVITY_F, STICK_DEADZONE,
                           &s_accum_x, &s_accum_y);
-        InjectCursorStick(cx, cy, MENU_SENSITIVITY_F,
+        InjectCursorStick(cx, cy, MENU_SENSITIVITY_F, CSTICK_DEADZONE,
                           &s_accum_cx, &s_accum_cy);
     } else {
         SetGCBindings();
@@ -300,24 +368,26 @@ static void GC_Input_Frame(void)
 
         short ax_lx = GC_FilterAxis(lx, STICK_DEADZONE);
         short ax_ly = GC_FilterAxis(ly, STICK_DEADZONE);
-        short ax_cx = GC_FilterAxis(cx, STICK_DEADZONE);
-        short ax_cy = GC_FilterAxis(cy, STICK_DEADZONE);
+        short ax_cx = GC_FilterAxis(cx, CSTICK_DEADZONE);
+        short ax_cy = GC_FilterAxis(cy, CSTICK_DEADZONE);
+
 
         if (ax_lx != s_old_axis[0]) {
             Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_SIDE, ax_lx, 0, NULL);
             s_old_axis[0] = ax_lx;
         }
-    short neg_ly = -ax_ly;
+        short neg_ly = -ax_ly;
         if (neg_ly != s_old_axis[1]) {
             Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_FORWARD, neg_ly, 0, NULL);
             s_old_axis[1] = neg_ly;
         }
-        if (ax_cx != s_old_axis[2]) {
+        /* Send every frame when zero — ensures stale drift never accumulates in engine */
+        if (ax_cx != s_old_axis[2] || ax_cx == 0) {
             Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_YAW, ax_cx, 0, NULL);
             s_old_axis[2] = ax_cx;
         }
         short neg_cy = -ax_cy;
-        if (neg_cy != s_old_axis[3]) {
+        if (neg_cy != s_old_axis[3] || neg_cy == 0) {
             Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_PITCH, neg_cy, 0, NULL);
             s_old_axis[3] = neg_cy;
         }
@@ -411,6 +481,91 @@ static void WM_IRAiming(const struct ir_t *ir, qboolean in_game)
     }
 }
 
+static void CC_Input_Frame(WPADData *data, qboolean in_game)
+{
+    int i;
+    struct classic_ctrl_t *cc = &data->exp.classic;
+
+    if (!in_game) {
+        for (i = 0; i < (int)CC_MENU_BTN_COUNT; i++)
+            InjectKey(s_cc_menu_buttons[i].q3key,
+                      (data->btns_h & s_cc_menu_buttons[i].bit) ? qtrue : qfalse);
+
+        /* Left stick as cursor in menus */
+        float mag = cc->ljs.mag;
+        if (mag > CC_STICK_DEADZONE) {
+            if (mag > 1.0f) mag = 1.0f;
+            float rad = cc->ljs.ang * 3.14159265f / 180.0f;
+            float fx = __builtin_sinf(rad) * mag * MENU_SENSITIVITY_F;
+            float fy = -__builtin_cosf(rad) * mag * MENU_SENSITIVITY_F;
+            s_accum_x += fx;
+            s_accum_y += fy;
+            int ox = (int)s_accum_x;
+            int oy = (int)s_accum_y;
+            s_accum_x -= (float)ox;
+            s_accum_y -= (float)oy;
+            if (ox != 0 || oy != 0)
+                Com_QueueEvent(0, SE_MOUSE, ox, oy, 0, NULL);
+        } else {
+            s_accum_x = s_accum_y = 0.0f;
+        }
+    } else {
+        SetClassicBindings();
+
+        for (i = 0; i < (int)CC_BTN_COUNT; i++)
+            InjectKey(s_cc_buttons[i].q3key,
+                      (data->btns_h & s_cc_buttons[i].bit) ? qtrue : qfalse);
+
+        /* Left stick -> strafe / forward */
+        float lmag = cc->ljs.mag;
+        if (lmag < CC_STICK_DEADZONE) {
+            if (s_old_axis[0] != 0) {
+                Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_SIDE, 0, 0, NULL);
+                s_old_axis[0] = 0;
+            }
+            if (s_old_axis[1] != 0) {
+                Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_FORWARD, 0, 0, NULL);
+                s_old_axis[1] = 0;
+            }
+        } else {
+            if (lmag > 1.0f) lmag = 1.0f;
+            float lrad = cc->ljs.ang * 3.14159265f / 180.0f;
+            short side = (short)(__builtin_sinf(lrad) * lmag * CC_STICK_SCALE);
+            short fwd  = (short)(-__builtin_cosf(lrad) * lmag * CC_STICK_SCALE);
+            if (side != s_old_axis[0]) {
+                Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_SIDE, side, 0, NULL);
+                s_old_axis[0] = side;
+            }
+            if (fwd != s_old_axis[1]) {
+                Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_FORWARD, fwd, 0, NULL);
+                s_old_axis[1] = fwd;
+            }
+        }
+
+        /* Right stick -> yaw / pitch */
+        float rmag = cc->rjs.mag;
+        if (rmag < CC_STICK_DEADZONE) {
+            Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_YAW,   0, 0, NULL);
+            Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_PITCH, 0, 0, NULL);
+            s_old_axis[2] = s_old_axis[3] = 0;
+        } else {
+            if (rmag > 1.0f) rmag = 1.0f;
+            float rrad = cc->rjs.ang * 3.14159265f / 180.0f;
+            short yaw   = (short)(__builtin_sinf(rrad) * rmag * CC_STICK_SCALE);
+            /* stick-up = ang=0 → cos=1 → negate so up = look up (negative pitch) */
+            short pitch = (short)(-__builtin_cosf(rrad) * rmag * CC_STICK_SCALE);
+            if (yaw != s_old_axis[2] || yaw == 0) {
+                Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_YAW, yaw, 0, NULL);
+                s_old_axis[2] = yaw;
+            }
+            if (pitch != s_old_axis[3] || pitch == 0) {
+                Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_PITCH, pitch, 0, NULL);
+                s_old_axis[3] = pitch;
+            }
+        }
+    }
+}
+
 static void WM_Input_Frame(void)
 {
     int i;
@@ -448,7 +603,8 @@ static void WM_Input_Frame(void)
 
     u32 exp_type = WPAD_EXP_NONE;
     WPAD_Probe(WPAD_CHAN_0, &exp_type);
-    qboolean has_nunchuk = (exp_type == WPAD_EXP_NUNCHUK) ? qtrue : qfalse;
+    qboolean has_nunchuk  = (exp_type == WPAD_EXP_NUNCHUK)  ? qtrue : qfalse;
+    qboolean has_classic  = (exp_type == WPAD_EXP_CLASSIC)  ? qtrue : qfalse;
 
 #ifdef WII_DEBUG
     if (++s_wpad_diag_count >= 300) {
@@ -462,11 +618,30 @@ static void WM_Input_Frame(void)
                      data->exp.nunchuk.js.ang,
                      data->exp.nunchuk.btns);
         }
+        if (has_classic) {
+            wii_diag("[wpad] classic lmag=%.2f lang=%.1f rmag=%.2f rang=%.1f btns=0x%08x\n",
+                     data->exp.classic.ljs.mag, data->exp.classic.ljs.ang,
+                     data->exp.classic.rjs.mag, data->exp.classic.rjs.ang,
+                     data->btns_h);
+        }
     }
 #endif
 
-    if (!in_game) {
-        /* ---- Menu mode ---- */
+    if (has_classic) {
+        /* First time CC is detected: re-apply data format so wiiuse_set_report_type
+           picks WM_RPT_BTN_ACC_IR_EXP with EXP now set. Without this, the format
+           update from the CC handshake may race with our frame loop and the
+           Wiimote keeps sending WM_RPT_BTN_ACC_IR (no expansion data). */
+        if (!s_cc_fmt_triggered) {
+            s_cc_fmt_triggered = qtrue;
+            WPAD_SetDataFormat(WPAD_CHAN_0, WPAD_FMT_BTNS_ACC_IR);
+        }
+        CC_Input_Frame(data, in_game);
+    } else if (!in_game) {
+        /* CC not present — reset so we retrigger format if CC is re-attached */
+        s_cc_fmt_triggered = qfalse;
+
+        /* ---- Wiimote menu mode ---- */
         for (i = 0; i < (int)WM_MENU_BTN_COUNT; i++)
             InjectKey(s_wm_menu_buttons[i].q3key,
                       (held & s_wm_menu_buttons[i].bit) ? qtrue : qfalse);
@@ -497,7 +672,9 @@ static void WM_Input_Frame(void)
             }
         }
     } else {
-        /* ---- Game mode ---- */
+        s_cc_fmt_triggered = qfalse;
+
+        /* ---- Wiimote game mode ---- */
         SetWiimoteBindings();
 
         for (i = 0; i < (int)WM_BTN_COUNT; i++)
@@ -712,7 +889,9 @@ void Wii_Input_Init(void)
     PAD_Init();
 
 #if WPAD_ENABLED
-    s_wm_bindings_set = qfalse;
+    s_wm_bindings_set  = qfalse;
+    s_cc_bindings_set  = qfalse;
+    s_cc_fmt_triggered = qfalse;
     s_ir_last_x = IR_CENTER_X;
     s_ir_last_y = IR_CENTER_Y;
     s_ir_was_valid = qfalse;
@@ -747,6 +926,26 @@ void Wii_Input_Init(void)
         printf("[input] USB mouse initialised\n");
 #endif
     }
+
+}
+
+void Wii_Input_SetCvars(void)
+{
+    Cvar_Set("in_joystick",          "1");
+    Cvar_Set("in_joystickUseAnalog", "1");
+    Cvar_Set("j_side_axis",    "0");
+    Cvar_Set("j_forward_axis", "1");
+    Cvar_Set("j_pitch_axis",   "3");
+    Cvar_Set("j_yaw_axis",     "4");
+    Cvar_Set("j_side",    "0.25");
+    Cvar_Set("j_forward", "-0.25");
+    Cvar_Set("j_pitch",   "0.015");
+    Cvar_Set("j_yaw",    "-0.015");
+
+    Cvar_Set("vm_ui",    "1");
+    Cvar_Set("vm_cgame", "1");
+    Cvar_Set("vm_game",  "1");
+
 }
 
 void Wii_Input_Frame(void)

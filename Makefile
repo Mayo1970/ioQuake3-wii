@@ -28,133 +28,133 @@ else
 endif
 INCLUDES    := code
 
-# OpenGX
-OPENGX_INC  := $(DEVKITPRO)/portlibs/wii/include
-OPENGX_LIB  := $(DEVKITPRO)/portlibs/wii/lib
-OPENGX_SRC  := ../opengx/src
+# OpenGX — prebuilt library + headers vendored under libs/opengx.
+# No pacman install or OpenGX build needed.
+OPENGX_INC  := libs/opengx/include
+OPENGX_LIB  := libs/opengx/lib
 
-# ioQuake3 source directories
-IOQ3_DIR    := ../ioq3
-
+# ioQuake3 sources are vendored under code/ — see legacy/apply_patches.sh for
+# the historical patch set if you need to regenerate the vendored tree from
+# a fresh upstream ioQ3 clone.
 IOQ3_SRCS   := \
-  $(IOQ3_DIR)/code/qcommon/cmd.c \
-  $(IOQ3_DIR)/code/qcommon/cm_load.c \
-  $(IOQ3_DIR)/code/qcommon/cm_patch.c \
-  $(IOQ3_DIR)/code/qcommon/cm_polylib.c \
-  $(IOQ3_DIR)/code/qcommon/cm_test.c \
-  $(IOQ3_DIR)/code/qcommon/cm_trace.c \
-  $(IOQ3_DIR)/code/qcommon/common.c \
-  $(IOQ3_DIR)/code/qcommon/cvar.c \
-  $(IOQ3_DIR)/code/qcommon/files.c \
-  $(IOQ3_DIR)/code/qcommon/huffman.c \
-  $(IOQ3_DIR)/code/qcommon/md4.c \
-  $(IOQ3_DIR)/code/qcommon/msg.c \
-  $(IOQ3_DIR)/code/qcommon/net_chan.c \
-  $(IOQ3_DIR)/code/qcommon/net_ip.c \
-  $(IOQ3_DIR)/code/qcommon/q_math.c \
-  $(IOQ3_DIR)/code/qcommon/q_shared.c \
-  $(IOQ3_DIR)/code/qcommon/unzip.c \
-  $(IOQ3_DIR)/code/qcommon/vm.c \
-  $(IOQ3_DIR)/code/qcommon/vm_interpreted.c \
-  $(IOQ3_DIR)/code/qcommon/vm_none.c \
-  $(IOQ3_DIR)/code/client/cl_cgame.c \
-  $(IOQ3_DIR)/code/client/cl_cin.c \
-  $(IOQ3_DIR)/code/client/cl_console.c \
-  $(IOQ3_DIR)/code/client/cl_input.c \
-  $(IOQ3_DIR)/code/client/cl_keys.c \
-  $(IOQ3_DIR)/code/client/cl_main.c \
-  $(IOQ3_DIR)/code/client/cl_net_chan.c \
-  $(IOQ3_DIR)/code/client/cl_parse.c \
-  $(IOQ3_DIR)/code/client/cl_scrn.c \
-  $(IOQ3_DIR)/code/client/cl_ui.c \
-  $(IOQ3_DIR)/code/client/snd_dma.c \
-  $(IOQ3_DIR)/code/client/snd_mem.c \
-  $(IOQ3_DIR)/code/client/snd_mix.c \
-  $(IOQ3_DIR)/code/client/snd_codec.c \
-  $(IOQ3_DIR)/code/client/snd_codec_wav.c \
-  $(IOQ3_DIR)/code/client/snd_adpcm.c \
-  $(IOQ3_DIR)/code/client/snd_wavelet.c \
-  $(IOQ3_DIR)/code/server/sv_bot.c \
-  $(IOQ3_DIR)/code/server/sv_ccmds.c \
-  $(IOQ3_DIR)/code/server/sv_client.c \
-  $(IOQ3_DIR)/code/server/sv_game.c \
-  $(IOQ3_DIR)/code/server/sv_init.c \
-  $(IOQ3_DIR)/code/server/sv_main.c \
-  $(IOQ3_DIR)/code/server/sv_net_chan.c \
-  $(IOQ3_DIR)/code/server/sv_snapshot.c \
-  $(IOQ3_DIR)/code/server/sv_world.c \
-  $(IOQ3_DIR)/code/botlib/be_aas_bspq3.c \
-  $(IOQ3_DIR)/code/botlib/be_aas_cluster.c \
-  $(IOQ3_DIR)/code/botlib/be_aas_debug.c \
-  $(IOQ3_DIR)/code/botlib/be_aas_entity.c \
-  $(IOQ3_DIR)/code/botlib/be_aas_file.c \
-  $(IOQ3_DIR)/code/botlib/be_aas_main.c \
-  $(IOQ3_DIR)/code/botlib/be_aas_move.c \
-  $(IOQ3_DIR)/code/botlib/be_aas_optimize.c \
-  $(IOQ3_DIR)/code/botlib/be_aas_reach.c \
-  $(IOQ3_DIR)/code/botlib/be_aas_route.c \
-  $(IOQ3_DIR)/code/botlib/be_aas_routealt.c \
-  $(IOQ3_DIR)/code/botlib/be_aas_sample.c \
-  $(IOQ3_DIR)/code/botlib/be_ai_char.c \
-  $(IOQ3_DIR)/code/botlib/be_ai_chat.c \
-  $(IOQ3_DIR)/code/botlib/be_ai_gen.c \
-  $(IOQ3_DIR)/code/botlib/be_ai_goal.c \
-  $(IOQ3_DIR)/code/botlib/be_ai_move.c \
-  $(IOQ3_DIR)/code/botlib/be_ai_weap.c \
-  $(IOQ3_DIR)/code/botlib/be_ai_weight.c \
-  $(IOQ3_DIR)/code/botlib/be_ea.c \
-  $(IOQ3_DIR)/code/botlib/be_interface.c \
-  $(IOQ3_DIR)/code/botlib/l_crc.c \
-  $(IOQ3_DIR)/code/botlib/l_libvar.c \
-  $(IOQ3_DIR)/code/botlib/l_log.c \
-  $(IOQ3_DIR)/code/botlib/l_memory.c \
-  $(IOQ3_DIR)/code/botlib/l_precomp.c \
-  $(IOQ3_DIR)/code/botlib/l_script.c \
-  $(IOQ3_DIR)/code/botlib/l_struct.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_animation.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_bsp.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_curve.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_init.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_light.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_main.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_marks.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_mesh.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_model.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_model_iqm.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_scene.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_shade_calc.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_shader.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_backend.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_cmds.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_flares.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_image.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_shade.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_shadows.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_sky.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_surface.c \
-  $(IOQ3_DIR)/code/renderergl1/tr_world.c \
-  $(IOQ3_DIR)/code/renderercommon/puff.c \
-  $(IOQ3_DIR)/code/renderercommon/tr_font.c \
-  $(IOQ3_DIR)/code/renderercommon/tr_image_bmp.c \
-  $(IOQ3_DIR)/code/renderercommon/tr_image_jpg.c \
-  $(IOQ3_DIR)/code/renderercommon/tr_image_pcx.c \
-  $(IOQ3_DIR)/code/renderercommon/tr_image_png.c \
-  $(IOQ3_DIR)/code/renderercommon/tr_image_pvr.c \
-  $(IOQ3_DIR)/code/renderercommon/tr_image_tga.c \
-  $(IOQ3_DIR)/code/renderercommon/tr_noise.c
+  code/qcommon/cmd.c \
+  code/qcommon/cm_load.c \
+  code/qcommon/cm_patch.c \
+  code/qcommon/cm_polylib.c \
+  code/qcommon/cm_test.c \
+  code/qcommon/cm_trace.c \
+  code/qcommon/common.c \
+  code/qcommon/cvar.c \
+  code/qcommon/files.c \
+  code/qcommon/huffman.c \
+  code/qcommon/md4.c \
+  code/qcommon/msg.c \
+  code/qcommon/net_chan.c \
+  code/qcommon/net_ip.c \
+  code/qcommon/q_math.c \
+  code/qcommon/q_shared.c \
+  code/qcommon/unzip.c \
+  code/qcommon/vm.c \
+  code/qcommon/vm_interpreted.c \
+  code/qcommon/vm_powerpc.c \
+  code/client/cl_cgame.c \
+  code/client/cl_cin.c \
+  code/client/cl_console.c \
+  code/client/cl_input.c \
+  code/client/cl_keys.c \
+  code/client/cl_main.c \
+  code/client/cl_net_chan.c \
+  code/client/cl_parse.c \
+  code/client/cl_scrn.c \
+  code/client/cl_ui.c \
+  code/client/snd_dma.c \
+  code/client/snd_mem.c \
+  code/client/snd_mix.c \
+  code/client/snd_codec.c \
+  code/client/snd_codec_wav.c \
+  code/client/snd_adpcm.c \
+  code/client/snd_wavelet.c \
+  code/server/sv_bot.c \
+  code/server/sv_ccmds.c \
+  code/server/sv_client.c \
+  code/server/sv_game.c \
+  code/server/sv_init.c \
+  code/server/sv_main.c \
+  code/server/sv_net_chan.c \
+  code/server/sv_snapshot.c \
+  code/server/sv_world.c \
+  code/botlib/be_aas_bspq3.c \
+  code/botlib/be_aas_cluster.c \
+  code/botlib/be_aas_debug.c \
+  code/botlib/be_aas_entity.c \
+  code/botlib/be_aas_file.c \
+  code/botlib/be_aas_main.c \
+  code/botlib/be_aas_move.c \
+  code/botlib/be_aas_optimize.c \
+  code/botlib/be_aas_reach.c \
+  code/botlib/be_aas_route.c \
+  code/botlib/be_aas_routealt.c \
+  code/botlib/be_aas_sample.c \
+  code/botlib/be_ai_char.c \
+  code/botlib/be_ai_chat.c \
+  code/botlib/be_ai_gen.c \
+  code/botlib/be_ai_goal.c \
+  code/botlib/be_ai_move.c \
+  code/botlib/be_ai_weap.c \
+  code/botlib/be_ai_weight.c \
+  code/botlib/be_ea.c \
+  code/botlib/be_interface.c \
+  code/botlib/l_crc.c \
+  code/botlib/l_libvar.c \
+  code/botlib/l_log.c \
+  code/botlib/l_memory.c \
+  code/botlib/l_precomp.c \
+  code/botlib/l_script.c \
+  code/botlib/l_struct.c \
+  code/renderergl1/tr_animation.c \
+  code/renderergl1/tr_bsp.c \
+  code/renderergl1/tr_curve.c \
+  code/renderergl1/tr_init.c \
+  code/renderergl1/tr_light.c \
+  code/renderergl1/tr_main.c \
+  code/renderergl1/tr_marks.c \
+  code/renderergl1/tr_mesh.c \
+  code/renderergl1/tr_model.c \
+  code/renderergl1/tr_model_iqm.c \
+  code/renderergl1/tr_scene.c \
+  code/renderergl1/tr_shade_calc.c \
+  code/renderergl1/tr_shader.c \
+  code/renderergl1/tr_backend.c \
+  code/renderergl1/tr_cmds.c \
+  code/renderergl1/tr_flares.c \
+  code/renderergl1/tr_image.c \
+  code/renderergl1/tr_shade.c \
+  code/renderergl1/tr_shadows.c \
+  code/renderergl1/tr_sky.c \
+  code/renderergl1/tr_surface.c \
+  code/renderergl1/tr_world.c \
+  code/renderercommon/puff.c \
+  code/renderercommon/tr_font.c \
+  code/renderercommon/tr_image_bmp.c \
+  code/renderercommon/tr_image_jpg.c \
+  code/renderercommon/tr_image_pcx.c \
+  code/renderercommon/tr_image_png.c \
+  code/renderercommon/tr_image_pvr.c \
+  code/renderercommon/tr_image_tga.c \
+  code/renderercommon/tr_noise.c
 
 # zlib: auto-detect ioQ3 internal zlib, else fall back to devkitPro portlibs (ppc-zlib).
-IOQ3_ZLIB_A := $(IOQ3_DIR)/code/libs/zlib/zlib.h
-IOQ3_ZLIB_B := $(IOQ3_DIR)/code/zlib/zlib.h
+IOQ3_ZLIB_A := code/libs/zlib/zlib.h
+IOQ3_ZLIB_B := code/zlib/zlib.h
 
 ifneq ($(wildcard $(IOQ3_ZLIB_A)),)
-  ZLIB_DIR      := $(IOQ3_DIR)/code/libs/zlib
+  ZLIB_DIR      := code/libs/zlib
   ZLIB_CFLAGS   := -DUSE_INTERNAL_ZLIB -I$(ZLIB_DIR) \
                    -DZLIB_H_PATH=\"$(ZLIB_DIR)/zlib.h\"
   IOQ3_ZLIB_SRCS := $(wildcard $(ZLIB_DIR)/*.c)
   ZLIB_LIBS     :=
 else ifneq ($(wildcard $(IOQ3_ZLIB_B)),)
-  ZLIB_DIR      := $(IOQ3_DIR)/code/zlib
+  ZLIB_DIR      := code/zlib
   ZLIB_CFLAGS   := -DUSE_INTERNAL_ZLIB -I$(ZLIB_DIR) \
                    -DZLIB_H_PATH=\"$(ZLIB_DIR)/zlib.h\"
   IOQ3_ZLIB_SRCS := $(wildcard $(ZLIB_DIR)/*.c)
@@ -185,11 +185,11 @@ else
 endif
 
 # Copy zlib headers next to unzip.h so #include "zlib.h" resolves correctly.
-ZLIB_H_COPY  := $(IOQ3_DIR)/code/qcommon/zlib.h
-ZCONF_H_COPY := $(IOQ3_DIR)/code/qcommon/zconf.h
+ZLIB_H_COPY  := code/qcommon/zlib.h
+ZCONF_H_COPY := code/qcommon/zconf.h
 
 # Compiler flags
-ifeq ($(WII_DEBUG),1)
+ifeq ($(DEBUG),1)
   WII_DEBUG_FLAG := -DWII_DEBUG
 else
   WII_DEBUG_FLAG :=
@@ -211,13 +211,13 @@ CFLAGS  = $(MACHDEP) \
           -include $(PORTDIR)/code/sys/wii_platform.h \
           -I$(PORTDIR)/code/sys/include \
           $(foreach dir,$(INCLUDES),-I$(dir)) \
-          -I$(IOQ3_DIR)/code \
-          -I$(IOQ3_DIR)/code/sys \
-          -I$(IOQ3_DIR)/code/qcommon \
-          -I$(IOQ3_DIR)/code/client \
-          -I$(IOQ3_DIR)/code/renderercommon \
-          -I$(IOQ3_DIR)/code/renderergl1 \
-          -I$(IOQ3_DIR)/code/botlib \
+          -Icode \
+          -Icode/sys \
+          -Icode/qcommon \
+          -Icode/client \
+          -Icode/renderercommon \
+          -Icode/renderergl1 \
+          -Icode/botlib \
           -I$(LIBOGC_INC) \
           -DOPENGX_AVAILABLE -I$(OPENGX_INC)
 
@@ -232,11 +232,6 @@ else
 endif
 
 # Source collection
-# Patched OpenGX source — disabled; using stock library.
-#OGX_PATCHED_SRCS := $(OPENGX_SRC)/texture.c
-#OGX_PATCHED_OBJS := $(patsubst $(OPENGX_SRC)/%.c,$(BUILD)/opengx/%.o,$(OGX_PATCHED_SRCS))
-OGX_PATCHED_OBJS :=
-
 SOURCES_NO_INPUT := $(filter-out code/input,$(SOURCES))
 WII_C_SRCS   := $(foreach dir,$(SOURCES_NO_INPUT),$(wildcard $(dir)/*.c)) \
                 $(WII_INPUT_SRC)
@@ -244,8 +239,7 @@ WII_CPP_SRCS := $(foreach dir,$(SOURCES_NO_INPUT),$(wildcard $(dir)/*.cpp))
 ALL_SRCS     := $(WII_C_SRCS) $(WII_CPP_SRCS) $(IOQ3_SRCS) $(IOQ3_ZLIB_SRCS)
 
 OBJS := $(patsubst %.c,$(BUILD)/%.o,$(filter %.c,$(ALL_SRCS))) \
-        $(patsubst %.cpp,$(BUILD)/%.o,$(filter %.cpp,$(ALL_SRCS))) \
-        $(OGX_PATCHED_OBJS)
+        $(patsubst %.cpp,$(BUILD)/%.o,$(filter %.cpp,$(ALL_SRCS)))
 
 # Build rules
 .PHONY: all clean dol prebuild
@@ -261,33 +255,46 @@ $(BUILD)/$(TARGET).elf: prebuild $(OBJS)
 	@echo "Linking $@"
 	$(CC) $(LDFLAGS) $(filter %.o,$^) $(LIBS) -o $@
 
+# Default rule — vendored ioQ3 source. Does NOT pull in the Wii network shim
+# (huffman.c's static send() collides with BSD socket send() if it does).
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
 	@echo "CC $<"
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Port-specific files (code/*) need the network shim
-$(BUILD)/code/%.o: code/%.c
+# Wii port layer — needs the network shim (via -DWII_INCLUDE_NET pulling in
+# code/sys/wii_net.h from wii_platform.h). One rule per port-layer dir so
+# vendored ioQ3 doesn't accidentally inherit it.
+$(BUILD)/code/audio/%.o: code/audio/%.c
 	@mkdir -p $(dir $@)
 	@echo "CC $<"
 	$(CC) $(CFLAGS) -DWII_INCLUDE_NET -c $< -o $@
 
-# Patched OpenGX sources — built with OpenGX's own internal include path.
-$(BUILD)/opengx/%.o: $(OPENGX_SRC)/%.c
+$(BUILD)/code/input/%.o: code/input/%.c
 	@mkdir -p $(dir $@)
-	@echo "CC (opengx) $<"
-	$(CC) $(MACHDEP) -pipe -O2 -Wall -Wno-unused-variable -msdata=none -G 0 -DGEKKO -I$(OPENGX_SRC) -I$(OPENGX_INC) -I$(LIBOGC_INC) -c $< -o $@
+	@echo "CC $<"
+	$(CC) $(CFLAGS) -DWII_INCLUDE_NET -c $< -o $@
 
-$(BUILD)/$(IOQ3_DIR)/code/client/cl_ui.o: $(IOQ3_DIR)/code/client/cl_ui.c
+$(BUILD)/code/renderer/%.o: code/renderer/%.c
+	@mkdir -p $(dir $@)
+	@echo "CC $<"
+	$(CC) $(CFLAGS) -DWII_INCLUDE_NET -c $< -o $@
+
+$(BUILD)/code/sys/%.o: code/sys/%.c
+	@mkdir -p $(dir $@)
+	@echo "CC $<"
+	$(CC) $(CFLAGS) -DWII_INCLUDE_NET -c $< -o $@
+
+$(BUILD)/code/client/cl_ui.o: code/client/cl_ui.c
 	@mkdir -p $(dir $@)
 	@echo "CC $< [wii-patched]"
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/$(IOQ3_DIR)/code/client/cl_main.o: $(IOQ3_DIR)/code/client/cl_main.c
+$(BUILD)/code/client/cl_main.o: code/client/cl_main.c
 	@mkdir -p $(dir $@)
 	@echo "CC $< [wii-patched]"
 	$(CC) $(CFLAGS) -c $< -o $@
-$(BUILD)/$(IOQ3_DIR)/code/qcommon/common.o: $(IOQ3_DIR)/code/qcommon/common.c
+$(BUILD)/code/qcommon/common.o: code/qcommon/common.c
 	@mkdir -p $(dir $@)
 	@echo "CC $< [wii-patched]"
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -295,7 +302,7 @@ $(BUILD)/$(IOQ3_DIR)/code/qcommon/common.o: $(IOQ3_DIR)/code/qcommon/common.c
 # net_ip.c and wii_main.c both inline wii_net.h; rebuild both when the shim changes.
 WII_NET_H := code/sys/wii_net.h
 $(BUILD)/code/sys/wii_main.o: code/sys/wii_main.c $(WII_NET_H)
-$(BUILD)/../ioq3/code/qcommon/net_ip.o: ../ioq3/code/qcommon/net_ip.c $(WII_NET_H)
+$(BUILD)/code/qcommon/net_ip.o: code/qcommon/net_ip.c $(WII_NET_H)
 	@mkdir -p $(dir $@)
 	@echo "CC $<"
 	$(CC) $(CFLAGS) -DWII_INCLUDE_NET -c $< -o $@
@@ -314,6 +321,4 @@ dol: $(BUILD)/$(TARGET).elf
 clean:
 	@rm -rf $(BUILD)
 	@rm -f $(ZLIB_H_COPY) $(ZCONF_H_COPY)
-	@$(foreach d,qcommon client server botlib renderergl1 renderercommon, \
-		rm -f ../ioq3/code/$(d)/*.o 2>/dev/null || true;)
 	@echo "Cleaned."

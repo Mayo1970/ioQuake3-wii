@@ -138,7 +138,7 @@ int main(int argc, char *argv[])
         "+set r_dynamic 0 "
         "+set r_flares 0 "
         "+set r_fastsky 1 "
-        "+set r_lodbias 2 "
+        "+set r_lodbias 1 "
         "+set r_subdivisions 20 "
         "+set r_simpleMipMaps 1 "
         "+set r_drawSun 0 "
@@ -149,16 +149,7 @@ int main(int argc, char *argv[])
         "+set com_soundMegs 4 "
         "+set sv_pure 0 "
         "+set sv_maxclients 8 "
-        "+set in_joystick 1 "
-        "+set in_joystickUseAnalog 1 "
-        "+set j_side_axis 0 "
-        "+set j_forward_axis 1 "
-        "+set j_pitch_axis 3 "
-        "+set j_yaw_axis 4 "
-        "+set j_pitch 0.015 "
-        "+set j_yaw -0.015 "
-        "+set j_forward -0.25 "
-        "+set j_side 0.25 "
+
         "+set com_standalone 0 "
         "+set net_enabled 1 "
         "+set net_port 27961 "
@@ -170,7 +161,10 @@ int main(int argc, char *argv[])
         "+set cg_drawTimer 0 "
         "+set cg_drawSnapshot 0 "
         "+set com_speeds 0 "
-        "+set r_speeds 0"
+        "+set r_speeds 0 "
+        "+set vm_ui 1 "
+        "+set vm_cgame 1 "
+        "+set vm_game 1"
     );
 
     SYS_SetPowerCallback(wii_power_cb);
@@ -212,8 +206,10 @@ int main(int argc, char *argv[])
     Com_Init(cmdline);
     WII_DBG_PRINTF("[wii] Com_Init done\n");
     boot_mark("Com_Init done");
+    Wii_Input_SetCvars();
 
     NET_Init();
+    boot_mark("NET_Init done, entering main loop");
 
     while (1) {
         Wii_Input_Frame();

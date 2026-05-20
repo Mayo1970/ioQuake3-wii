@@ -6,6 +6,7 @@
 #include <stdio.h>
 
 #include "wii_glimp.h"
+#include "wii_platform.h"
 
 #define GX_FIFO_SIZE    (256 * 1024)
 #define NUM_FRAMEBUFFERS 2
@@ -61,7 +62,17 @@ qboolean Wii_GX_Init(void)
     GX_SetDispCopyGamma(GX_GM_1_0);
 
     extern void ogx_initialize(void);
+    extern void ogx_set_framebuffer_height(int);
     ogx_initialize();
+    ogx_set_framebuffer_height((int)s_rmode->efbHeight);
+
+    wii_diag("[glimp] viTVMode=0x%02x fbWidth=%u efbHeight=%u xfbHeight=%u viHeight=%u fb_height_set=%d\n",
+             (unsigned)s_rmode->viTVMode,
+             (unsigned)s_rmode->fbWidth,
+             (unsigned)s_rmode->efbHeight,
+             (unsigned)s_rmode->xfbHeight,
+             (unsigned)s_rmode->viHeight,
+             (int)s_rmode->efbHeight);
 
     s_initialised = qtrue;
     return qtrue;
@@ -97,4 +108,14 @@ void Wii_GX_Shutdown(void)
 GXRModeObj *Wii_GX_GetRMode(void)
 {
     return s_rmode;
+}
+
+int Wii_GX_GetEFBHeight(void)
+{
+    return s_rmode ? (int)s_rmode->efbHeight : 480;
+}
+
+int Wii_GX_GetXFBHeight(void)
+{
+    return s_rmode ? (int)s_rmode->xfbHeight : 480;
 }

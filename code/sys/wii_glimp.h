@@ -7,3 +7,5 @@ qboolean    Wii_GX_Init(void);
 void        Wii_GX_EndFrame(void);
 void        Wii_GX_Shutdown(void);
 GXRModeObj *Wii_GX_GetRMode(void);
+int         Wii_GX_GetEFBHeight(void);
+int         Wii_GX_GetXFBHeight(void);

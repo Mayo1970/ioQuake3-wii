@@ -61,6 +61,16 @@ static inline int mprotect(void *addr, size_t len, int prot) {
     (void)addr; (void)len; (void)prot; return 0;
 }
 
+/* timersub for vm_powerpc.c timing printout — libogc has gettimeofday already */
+#include <sys/time.h>
+#ifndef timersub
+#define timersub(a, b, res) do { \
+    (res)->tv_sec  = (a)->tv_sec  - (b)->tv_sec;  \
+    (res)->tv_usec = (a)->tv_usec - (b)->tv_usec; \
+    if ((res)->tv_usec < 0) { (res)->tv_sec--; (res)->tv_usec += 1000000; } \
+} while (0)
+#endif
+
 #define IOAPI_NO_64BIT
 
 #pragma GCC diagnostic ignored "-Wunused-function"
@@ -80,11 +90,13 @@ static inline int mprotect(void *addr, size_t len, int prot) {
 #endif
 
 /*
- * client_t / netchan memory reduction — shrink per-client allocations
- * from ~114 KB to ~44 KB so 8 clients fit in the Wii's small zone.
+ * netchan memory reduction — shrink per-client allocations so 8 clients
+ * fit in the Wii's small zone. MAX_RELIABLE_COMMANDS must stay at stock 64:
+ * servers with custom content burst >16 reliable commands on connect,
+ * causing CL_AddReliableCommand to Com_Error(ERR_DROP) → hang.
  */
 #ifndef MAX_RELIABLE_COMMANDS
-#define MAX_RELIABLE_COMMANDS   16      /* stock: 64  — must be power-of-2 */
+#define MAX_RELIABLE_COMMANDS   64      /* stock: 64  — must be power-of-2 */
 #endif
 #ifndef PACKET_BACKUP
 #define PACKET_BACKUP           16      /* stock: 32  — must be power-of-2 */
@@ -103,15 +115,17 @@ static inline int mprotect(void *addr, size_t len, int prot) {
 #undef  DEF_COMZONEMEGS
 #define MIN_DEDICATED_COMHUNKMEGS 8
 #define MIN_COMHUNKMEGS           8
-#define DEF_COMHUNKMEGS           "32"
-#define DEF_COMZONEMEGS           "4"
+#define DEF_COMHUNKMEGS           32
+#define DEF_COMZONEMEGS           4
 
 /* Reduce audio BSS: stock s_rawsamples is 129×16384×8 = 16 MB, way too large */
 #ifndef MAX_RAW_STREAMS
 #define MAX_RAW_STREAMS  1      /* stock: MAX_CLIENTS*2+1 = 129 */
 #endif
 #ifndef MAX_RAW_SAMPLES
-#define MAX_RAW_SAMPLES  4096   /* stock: 16384 */
+#define MAX_RAW_SAMPLES  16384  /* stock value; with MAX_RAW_STREAMS=1 this is 128 KB.
+                                 * Previously 4096 — too small, RoQ decoder bursts
+                                 * overflowed the ring and caused crunchy cinematic audio. */
 #endif
 
 /* Undef libogc COLOR_* macros — ioQ3 redefines them as char literals */

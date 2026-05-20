@@ -9,8 +9,9 @@ using devkitPPC + libogc and [OpenGX](https://github.com/devkitPro/opengx)
 - Boots, connects to servers, loads maps, enters gameplay
 - All textures render correctly (map, icons, models, particles)
 - Networking works (Wi-Fi, LAN discovery, internet server browser)
-- GameCube controller with dual-stick analog input
+- GameCube controller support
 - Wiimote + Nunchuk with IR pointer aiming
+- Classic Controller support
 - USB keyboard and mouse support
 - Bot support (AI opponents, works offline and on hosted servers)
 - Local server hosting
@@ -25,9 +26,9 @@ using devkitPPC + libogc and [OpenGX](https://github.com/devkitPro/opengx)
    - **devkitPPC** (the PowerPC cross-compiler)
    - **Wii Libraries** (`wii-dev`)
    - **libfat-ogc**, **libogc**, **wiiuse**, **asndlib** are included in wii-dev
-3. Install OpenGX and zlib:
+3. Install zlib:
    ```
-   pacman -S wii-opengx ppc-zlib
+   pacman -S ppc-zlib
    ```
 4. Accept the default install path (`C:/devkitPro`).
 5. The installer sets `DEVKITPRO` and `DEVKITPPC` environment variables
@@ -37,52 +38,38 @@ using devkitPPC + libogc and [OpenGX](https://github.com/devkitPro/opengx)
    echo %DEVKITPPC%    → C:/devkitPro/devkitPPC
    ```
 
-### 2. Clone ioQuake3
-
-Clone the upstream ioQ3 repo **alongside** this folder (not inside it):
-
-```
-projects/
-├── ioq3/             ← git clone https://github.com/ioquake/ioq3.git
-└── ioquake3-wii/     ← this repo
-```
-
-If you want a different layout, adjust `IOQ3_DIR` in the Makefile.
-
-### 3. Install MSYS2 or use Git Bash
+### 2. Install MSYS2 or use the devkitPro shell
 
 The devkitPro installer ships MSYS2. Use the **MSYS2 devkitPro shell**
-(Start menu → devkitPro → MSYS2) for all build commands.
+(Start menu → devkitPro → MSYS2) for all build commands. It sets
+`DEVKITPRO`, `DEVKITPPC`, and the toolchain `PATH` correctly. Plain Git Bash
+or MSYS does not, and the build will error out.
 
 ---
 
 ## Building
 
-### Step 1 -- Patch ioQ3 (run once)
+This repo is self-contained — the patched ioQuake3 source is vendored under
+`code/qcommon/`, `code/client/`, `code/server/`, `code/botlib/`,
+`code/renderergl1/`, `code/renderercommon/`. A prebuilt OpenGX library and
+its headers are vendored under `libs/opengx/`. No sibling clone, patch step,
+or OpenGX build is required.
 
-```bash
-cd ioquake3-wii
-bash apply_patches.sh
-```
-
-This renames conflicting symbols in the upstream ioQ3 source so they don't
-collide with the Wii port's own definitions. It only needs to be run once.
-
-### Step 2 -- Build
+From the devkitPro MSYS2 shell, in the repo root:
 
 ```bash
 # Release build
 make dol
 
-# Debug build (enables SD card diagnostic logging)
-make WII_DEBUG=1 dol
+# Debug build (enables SD card diagnostic logging to sd:/quake3/)
+make DEBUG=1 dol
 ```
 
 **Build flags:**
 
 | Flag | Values | Default | Description |
 |------|--------|---------|-------------|
-| `WII_DEBUG` | `0`, `1` | `0` | Enable diagnostic logging to SD card |
+| `DEBUG` | `0`, `1` | `0` | Enable diagnostic logging to SD card |
 
 **Output:** `build/ioquake3_wii.dol`
 
@@ -190,6 +177,41 @@ input falls back to the GameCube controller automatically.
 | Nunchuk **Z** | Click |
 | D-pad | Arrow keys |
 
+### Classic Controller
+
+Dual-stick FPS layout with analog movement and look. Plug the Classic
+Controller into a Wiimote; it takes priority over the Wiimote's own input.
+
+#### In-game
+
+| Input | Action |
+|---|---|
+| Left stick | Move (forward/back + strafe) |
+| Right stick | Look (yaw + pitch) |
+| **ZR** | Fire |
+| **L** | Walk |
+| **R** | Use item |
+| **A** | Jump |
+| **B** | Crouch |
+| **ZL** | Zoom |
+| **X** | Previous weapon |
+| **Y** | Next weapon |
+| **+** | Menu (Escape) |
+| **-** | Scoreboard |
+| D-pad up/down | Next/prev weapon |
+| D-pad left/right | Prev/next weapon (alt) |
+
+#### Menus
+
+| Input | Action |
+|---|---|
+| Left stick | Move cursor |
+| **A** | Confirm (Enter) |
+| **B** | Back (Escape) |
+| **+** | Escape |
+| **ZR** | Click |
+| D-pad | Arrow keys |
+
 ### USB keyboard
 
 Plug a standard USB keyboard into the Wii to type console commands, server
@@ -214,12 +236,6 @@ the local player).
 
 ---
 
-## Connecting to a server
-
-Use the in-game server browser (internet + LAN).
-
----
-
 ## Memory budget
 
 | Region | Size | Location | Notes |
@@ -233,7 +249,9 @@ Use the in-game server browser (internet + LAN).
 | Stack | 512 KB | MEM1 | Overridden from 16 KB default |
 ## Known missing pieces
 
-- [ ] Classic Controller support
+- [ ] Missing Q3 logo at the top of the main menu
+- [ ] Missing player model in the Player Setup menu
+- [ ] No mod support (loading mods such as Team Arena crashes)
 
 ---
 

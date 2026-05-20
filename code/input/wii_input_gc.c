@@ -19,11 +19,11 @@ extern void Key_SetBinding(int keynum, const char *binding);
 #define TRIGGER_THRESHOLD  100
 #define MENU_SENSITIVITY_F 2.0f
 
-/* Axis indices matching j_*_axis cvars in wii_main.c */
+/* Axis indices — left stick: 0/1, right stick (C-stick): 4/3 */
 #define AXIS_SIDE     0
 #define AXIS_FORWARD  1
-#define AXIS_PITCH    3
 #define AXIS_YAW      4
+#define AXIS_PITCH    3
 
 /* GC stick raw +-127 -> Q3 joystick +-32767 */
 #define GC_AXIS_SCALE  258

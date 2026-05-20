@@ -2,7 +2,6 @@
 
 #include <asndlib.h>
 #include <ogc/cache.h>
-#include <ogc/lwp_watchdog.h>   /* gettime(), ticks_to_millisecs() */
 #include <string.h>
 #include <stdio.h>
 #include <malloc.h>
@@ -17,23 +16,14 @@
 #define SND_SAMPLES     2048    /* ~93 ms at 22 kHz; submission_chunk = half */
 #define SND_BYTES       (SND_SAMPLES * SND_CHANNELS * (SND_SAMPLEBITS / 8))
 
+/* Output rate ASND uses internally (set by ASND_Init → AUDIO_SetDSPSampleRate) */
+#define ASND_OUTPUT_RATE 48000
+
 static qboolean s_snd_init   = qfalse;
 static qboolean s_asnd_ready = qfalse;
-static qboolean s_first_submit = qtrue;
 
-/* ioQ3 mixer writes here as a ring; ASND reads it linearly and loops. */
+/* ioQ3 mixer writes here as a ring; ASND reads it via infinite loop. */
 static u8 *s_buf = NULL;
-
-/* TB timestamp at last ASND callback; used by GetDMAPos to estimate read pos. */
-static volatile u32 s_cb_ticks = 0;
-
-/* Re-queue ring buffer on ASND boundary, record TB tick for interpolation. */
-static void SndCallback(s32 voice)
-{
-    (void)voice;
-    ASND_AddVoice(SND_VOICE, s_buf, SND_BYTES);
-    s_cb_ticks = (u32)gettime();    /* sample: lower 32 bits, wraps ~52 s */
-}
 
 void Wii_Snd_Init(void)
 {
@@ -64,6 +54,7 @@ qboolean SNDDMA_Init(void)
     if (!s_buf)
         return qfalse;
     memset(s_buf, 0, SND_BYTES);
+    DCFlushRange(s_buf, SND_BYTES);
 
     dma.samplebits       = SND_SAMPLEBITS;
     dma.isfloat          = 0;
@@ -74,38 +65,40 @@ qboolean SNDDMA_Init(void)
     dma.submission_chunk = SND_SAMPLES / 2;            /* 1024 pairs        */
     dma.buffer           = s_buf;
 
-    s_cb_ticks = (u32)gettime();
-
-    ASND_SetVoice(SND_VOICE,
-                  VOICE_STEREO_16BIT,
-                  SND_FREQ,
-                  0,            /* delay ms */
-                  s_buf, SND_BYTES,
-                  255, 255,     /* left/right volume (full) */
-                  SndCallback);
+    /*
+     * Use infinite voice: ASND loops s_buf forever at SND_FREQ input rate.
+     * No callback needed — Q3 mixer writes into the ring, SNDDMA_Submit
+     * flushes the DCache, and ASND's DMA sees the freshly-written samples.
+     */
+    ASND_SetInfiniteVoice(SND_VOICE,
+                          VOICE_STEREO_16BIT,
+                          SND_FREQ,
+                          0,            /* delay ms */
+                          s_buf, SND_BYTES,
+                          255, 255);    /* left/right volume (full) */
 
     s_snd_init = qtrue;
     return qtrue;
 }
 
 /*
- * Estimate hardware read position using TB ticks since last ASND callback.
- * Returns interleaved sample count so S_GetSoundtime's /dma.channels yields
- * the correct sample-pair offset in [0, SND_SAMPLES).
+ * Derive hardware read position from ASND's tick counter.
+ *
+ * ASND_GetTickCounterVoice returns ticks at ASND_OUTPUT_RATE (48 kHz).
+ * Convert to source-rate sample-pairs, wrap to ring size, and return the
+ * interleaved sample count so S_GetSoundtime's /dma.channels gives the
+ * correct frame offset in [0, SND_SAMPLES).
  */
 int SNDDMA_GetDMAPos(void)
 {
     if (!s_snd_init)
         return 0;
 
-    u32 ticks_since  = (u32)gettime() - s_cb_ticks;
-    u32 ms_since     = (u32)ticks_to_millisecs((u64)ticks_since);
+    u32 ticks = ASND_GetTickCounterVoice(SND_VOICE);
+    u32 src_frames = (u32)(((u64)ticks * SND_FREQ) / ASND_OUTPUT_RATE);
+    u32 pos = src_frames % (u32)SND_SAMPLES;
 
-    u32 pairs = ms_since * (u32)SND_FREQ / 1000u;
-    if (pairs >= (u32)SND_SAMPLES)
-        pairs = (u32)SND_SAMPLES - 1u;
-
-    return (int)(pairs * (u32)SND_CHANNELS);
+    return (int)(pos * (u32)SND_CHANNELS);
 }
 
 void SNDDMA_BeginPainting(void)
