@@ -7,14 +7,15 @@ using devkitPPC + libogc and [OpenGX](https://github.com/devkitPro/opengx)
 ## Status
 
 - Boots, connects to servers, loads maps, enters gameplay
-- All textures render correctly (map, icons, models, particles)
-- Networking works (Wi-Fi, LAN discovery, internet server browser)
-- GameCube controller support
-- Wiimote + Nunchuk with IR pointer aiming
-- Classic Controller support
+- Networking works (Wi-Fi, LAN discovery, internet server browser, content downloads)
+- Background music and cinematic playback
+- Wii Pro/Classic and GameCube controller support
+- Wiimote + Nunchuk with IR aim
 - USB keyboard and mouse support
 - Bot support (AI opponents, works offline and on hosted servers)
 - Local server hosting
+- Optional Open Arena standalone build (`make oa dol`)
+- Optional 240p / 264p video output for CRTs and retro scalers
 
 ## Prerequisites (Windows)
 
@@ -49,29 +50,42 @@ or MSYS does not, and the build will error out.
 
 ## Building
 
-This repo is self-contained — the patched ioQuake3 source is vendored under
-`code/qcommon/`, `code/client/`, `code/server/`, `code/botlib/`,
-`code/renderergl1/`, `code/renderercommon/`. A prebuilt OpenGX library and
-its headers are vendored under `libs/opengx/`. No sibling clone, patch step,
-or OpenGX build is required.
-
 From the devkitPro MSYS2 shell, in the repo root:
 
 ```bash
-# Release build
-make dol
+make dol              # Quake 3           → build/boot.dol
+make oa dol           # Open Arena        → build_oa/boot.dol
+make debug dol        # Q3 debug build    → build/boot.dol
+make oa-debug dol     # OA debug build    → build_oa/boot.dol
 
-# Debug build (enables SD card diagnostic logging to sd:/quake3/)
-make DEBUG=1 dol
+make 240p dol         # Q3  240p NTSC     → build/boot.dol
+make 240p-pal dol     # Q3  264p PAL      → build/boot.dol
+make oa-240p dol      # OA  240p NTSC     → build_oa/boot.dol
+make oa-240p-pal dol  # OA  264p PAL      → build_oa/boot.dol
+
+make all-flavors dol          # Q3 + OA release
+make all-flavors-240p dol     # Q3 + OA 240p NTSC
+make all-flavors-240p-pal dol # Q3 + OA 264p PAL
+
+make clean       # Clean Q3 build dir (build/)
+make oa clean    # Clean OA build dir (build_oa/)
 ```
 
-**Build flags:**
+Debug builds enable SD card diagnostic logging to `sd:/quake3/`.
 
-| Flag | Values | Default | Description |
-|------|--------|---------|-------------|
-| `DEBUG` | `0`, `1` | `0` | Enable diagnostic logging to SD card |
+### 240p / 264p mode
 
-**Output:** `build/ioquake3_wii.dol`
+By default the port uses whatever video mode the Wii's video system reports
+(`VIDEO_GetPreferredMode`), which is 480i on NTSC consoles and 576i on PAL.
+
+The `240p` / `240p-pal` targets switch to a single-field low-line mode:
+`TVNtsc240Ds` (240p, 60 Hz) or `TVPal264Ds` (264p, 50 Hz).
+
+Benefits over interlaced: cleaner signal on CRTs and retro scalers (RetroTINK,
+OSSC, etc.), frees ~1.2 MB of MEM1 (XFBs shrink from 640×480 to 640×240),
+and eliminates the EFB→XFB vertical upscale pass.
+
+**Do not use on modern flat panels** — most will reject the signal entirely.
 
 ---
 
@@ -80,15 +94,21 @@ make DEBUG=1 dol
 ```
 SD:/
 ├── apps/
-│   └── ioquake3/
-│       ├── boot.dol      ← build/ioquake3_wii.dol
+│   ├── ioquake3/
+│   │   ├── boot.dol      ← build/boot.dol
+│   │   └── meta.xml
+│   └── openarena/        ← OA build only
+│       ├── boot.dol      ← build_oa/boot.dol
 │       └── meta.xml
 └── quake3/
-    └── baseq3/
-        ├── pak0.pk3      ← from your Quake III Arena disc / purchase
-        ├── pak1.pk3
-        ├── ...
-        └── pak8.pk3
+    ├── baseq3/           ← Q3 data
+    │   ├── pak0.pk3      ← from your Quake III Arena disc / purchase
+    │   ├── pak1.pk3
+    │   ├── ...
+    │   └── pak8.pk3
+    └── baseoa/           ← OA data
+        ├── pak0.pk3      ← from your Open Arena install
+        └── ...
 ```
 
 **You need the original Quake III Arena data files** (`pak0.pk3` through
@@ -104,15 +124,12 @@ aiming). USB devices must be connected at boot (no hot-plug).
 
 ### GameCube controller
 
-Dual-stick FPS layout with analog movement and look. Buttons are rebindable
-from the Q3 menu.
-
 #### In-game
 
 | Input | Action |
 |---|---|
-| Left stick | Move (forward/back + strafe) |
-| C-stick | Look (yaw + pitch) |
+| Left stick | Move |
+| C-stick | Look  |
 | **R** trigger | Fire |
 | **L** trigger | Walk |
 | **A** | Jump |
@@ -179,8 +196,7 @@ input falls back to the GameCube controller automatically.
 
 ### Classic Controller
 
-Dual-stick FPS layout with analog movement and look. Plug the Classic
-Controller into a Wiimote; it takes priority over the Wiimote's own input.
+Plug the Pro/Classic Controller into a Wiimote; it takes priority over the Wiimote's own input.
 
 #### In-game
 
@@ -240,14 +256,14 @@ the local player).
 
 | Region | Size | Location | Notes |
 |---|---|---|---|
-| Hunk (`com_hunkMegs`) | 32 MB | MEM2 (top) | Maps, shaders, models |
-| Zone (`com_zoneMegs`) | 8 MB | MEM1 | Dynamic allocs, zlib inflate |
-| Sound (`com_soundMegs`) | 4 MB | MEM1 | Audio buffers |
-| sbrk heap | ~19 MB | MEM2 (bottom) | OpenGX textures, memalign |
+| Hunk (`com_hunkMegs`) | up to 32 MB | MEM2 (top) | Maps, shaders, models. Sized dynamically from MEM2 available at boot |
+| Zone (`com_zoneMegs`) | 8 MB | sbrk (MEM2) | Dynamic allocs, zlib inflate |
+| Sound (`com_soundMegs`) | 4 MB | sbrk (MEM2) | Audio buffers |
+| sbrk heap | ~19 MB | MEM2 (bottom) | OpenGX textures, memalign, smaller allocs |
 | GX FIFO | 256 KB | MEM1 | Command buffer |
 | Framebuffers | ~2.4 MB | MEM1 | Two XFB at 640x480 |
 | Stack | 512 KB | MEM1 | Overridden from 16 KB default |
-## Known missing pieces
+## Known issues
 
 - [ ] Missing Q3 logo at the top of the main menu
 - [ ] Missing player model in the Player Setup menu

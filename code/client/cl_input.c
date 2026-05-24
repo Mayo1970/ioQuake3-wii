@@ -554,6 +554,17 @@ void CL_CmdButtons( usercmd_t *cmd ) {
 CL_FinishMove
 ==============
 */
+
+#if defined(GEKKO) && WPAD_ENABLED
+/* Fine-aim IR offset from wii_input.c — normalized [-1, 1].
+   Added here so the shot goes where the IR dot physically points,
+   independent of the slow body-turn applied via SE_MOUSE. */
+#define WII_IR_YAW_RANGE   50.0f
+#define WII_IR_PITCH_RANGE 30.0f
+extern float wii_ir_aim_x;
+extern float wii_ir_aim_y;
+#endif
+
 void CL_FinishMove( usercmd_t *cmd ) {
 	int		i;
 
@@ -564,9 +575,19 @@ void CL_FinishMove( usercmd_t *cmd ) {
 	// can be determined without allowing cheating
 	cmd->serverTime = cl.serverTime;
 
+#if defined(GEKKO) && WPAD_ENABLED
+	{
+		float yaw   = cl.viewangles[YAW]   - wii_ir_aim_x * WII_IR_YAW_RANGE;
+		float pitch = cl.viewangles[PITCH] + wii_ir_aim_y * WII_IR_PITCH_RANGE;
+		cmd->angles[YAW]   = ANGLE2SHORT(yaw);
+		cmd->angles[PITCH] = ANGLE2SHORT(pitch);
+		cmd->angles[ROLL]  = ANGLE2SHORT(cl.viewangles[ROLL]);
+	}
+#else
 	for (i=0 ; i<3 ; i++) {
 		cmd->angles[i] = ANGLE2SHORT(cl.viewangles[i]);
 	}
+#endif
 }
 
 

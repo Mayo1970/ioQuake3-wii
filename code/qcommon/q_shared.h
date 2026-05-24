@@ -26,7 +26,19 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // q_shared.h -- included first by ALL program modules.
 // A user mod should never modify this file
 
-#ifdef STANDALONE
+#if defined(STANDALONEOA)
+  #define PRODUCT_NAME				"OpenArena"
+  #define BASEGAME					"baseoa"
+  #define CLIENT_WINDOW_TITLE		"OpenArena"
+  #define CLIENT_WINDOW_MIN_TITLE	"oa"
+  #define HOMEPATH_NAME_UNIX_LEGACY	".openarena"
+  #define HOMEPATH_NAME				"OpenArena"
+  #define GAMENAME_FOR_MASTER		"Quake3Arena"
+  #define CINEMATICS_LOGO		"idlogo.roq"
+  #define CINEMATICS_INTRO		"intro.roq"
+  #define LEGACY_PROTOCOL
+  #define CONFIG_PREFIX			"oaconfig"
+#elif defined(STANDALONE)
   #define PRODUCT_NAME				"iofoo3"
   #define BASEGAME					"foobar"
   #define CLIENT_WINDOW_TITLE		"changeme"

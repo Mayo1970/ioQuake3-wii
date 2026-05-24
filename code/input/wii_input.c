@@ -1,5 +1,5 @@
-/* wii_input.c -- Unified controller input (GC pad + optional Wiimote+Nunchuk)
-   plus USB keyboard and mouse support. */
+/* Unified controller input: GC pad + optional Wiimote/Nunchuk/Classic,
+   plus USB keyboard and mouse. */
 
 #ifndef WPAD_ENABLED
 #define WPAD_ENABLED  0
@@ -25,7 +25,7 @@ extern void Key_SetBinding(int keynum, const char *binding);
 
 #define STICK_DEADZONE       20   /* left stick */
 #define CSTICK_DEADZONE      50   /* C-stick — wider to cover hardware drift */
-#define MENU_SENSITIVITY_F   2.0f
+#define MENU_SENSITIVITY_F   3.0f
 #define TRIGGER_THRESHOLD    100
 
 /* Axis indices — left stick: 0/1, right stick (C-stick): 4/3 */
@@ -38,8 +38,6 @@ extern void Key_SetBinding(int keynum, const char *binding);
 #define GC_AXIS_SCALE  258
 
 typedef struct { u32 bit; int q3key; } btn_map_t;
-
-/* ---------- GC controller tables ---------- */
 
 static const btn_map_t s_gc_buttons[] = {
     { PAD_BUTTON_A,      K_JOY1  },
@@ -70,8 +68,6 @@ static const btn_map_t s_gc_menu_buttons[] = {
     { PAD_BUTTON_RIGHT,  K_RIGHTARROW },
 };
 #define GC_MENU_BTN_COUNT (sizeof(s_gc_menu_buttons) / sizeof(s_gc_menu_buttons[0]))
-
-/* ---------- Wiimote+Nunchuk tables ---------- */
 
 #if WPAD_ENABLED
 
@@ -144,17 +140,25 @@ static const btn_map_t s_cc_menu_buttons[] = {
 #define IR_SENSITIVITY    0.15f    /* scale factor for IR delta -> mouse delta */
 #define IR_MAX_DELTA      25.0f    /* clamp per-frame delta to prevent snaps */
 
+/* Fine-aim offset exported to cl_input.c. Normalized [-1, 1]: +1 = right/down
+   edge of screen. CL_FinishMove adds these as angle offsets so the shot goes
+   exactly where the IR dot points, independent of the slow body-turn. */
+#define IR_YAW_RANGE      50.0f   /* half-range: edge of screen = ±50° offset */
+#define IR_PITCH_RANGE    30.0f   /* half-range: edge of screen = ±30° offset */
+
 /* Nunchuk joystick: mag is 0.0-1.0, ang is degrees from up clockwise */
 #define NUNCHUK_DEADZONE  0.15f    /* magnitude below which stick is ignored */
 #define NUNCHUK_SCALE     32767.0f /* scale to Q3 joystick range */
 
 #endif /* WPAD_ENABLED */
 
-/* ---------- Shared state ---------- */
-
 typedef struct {
     qboolean key_held[256];
 } input_state_t;
+
+/* IR fine-aim offsets — written here, read by CL_FinishMove in cl_input.c */
+float wii_ir_aim_x = 0.0f;   /* normalized [-1,1]: positive = right */
+float wii_ir_aim_y = 0.0f;   /* normalized [-1,1]: positive = down  */
 
 static input_state_t  s_input;
 static qboolean       s_home_pressed   = qfalse;
@@ -180,8 +184,6 @@ static int            s_wpad_diag_count  = 0;
 #endif
 #endif
 
-/* ---------- Shared helpers ---------- */
-
 static void InjectKey(int q3key, qboolean down)
 {
     if (q3key < 0 || q3key >= 256)
@@ -203,7 +205,8 @@ static void ReleaseAllKeys(void)
     }
     s_accum_x  = s_accum_y  = 0.0f;
     s_accum_cx = s_accum_cy = 0.0f;
-    /* Zero all axes in the engine so stale values don't persist across state transitions */
+    wii_ir_aim_x = wii_ir_aim_y = 0.0f;
+    /* Zero engine-side axes so stale values don't persist across state transitions */
     Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_SIDE,    0, 0, NULL);
     Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_FORWARD, 0, 0, NULL);
     Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_YAW,     0, 0, NULL);
@@ -242,8 +245,6 @@ static void InjectCursorStick(s8 x, s8 y, float sensitivity, int deadzone,
         Com_QueueEvent(0, SE_MOUSE, out_x, -out_y, 0, NULL);
 }
 
-/* ---------- GC controller bindings ---------- */
-
 static void SetGCBindings(void)
 {
     if (s_bindings_set)
@@ -263,8 +264,6 @@ static void SetGCBindings(void)
     Key_SetBinding(K_JOY_LTRIG, "+speed");      /* L = walk */
     Key_SetBinding(K_JOY_RTRIG, "+attack");     /* R = fire */
 }
-
-/* ---------- Wiimote+Nunchuk bindings ---------- */
 
 #if WPAD_ENABLED
 static void SetWiimoteBindings(void)
@@ -286,8 +285,6 @@ static void SetWiimoteBindings(void)
     Key_SetBinding(K_JOY11, "+speed");      /* 1 = walk */
 }
 #endif
-
-/* ---------- Classic Controller bindings ---------- */
 
 #if WPAD_ENABLED
 static void SetClassicBindings(void)
@@ -312,8 +309,6 @@ static void SetClassicBindings(void)
     Key_SetBinding(K_JOY14, "weapnext");    /* D-right */
 }
 #endif
-
-/* ---------- GC controller frame ---------- */
 
 static void GC_Input_Frame(void)
 {
@@ -394,8 +389,6 @@ static void GC_Input_Frame(void)
     }
 }
 
-/* ---------- Wiimote+Nunchuk frame ---------- */
-
 #if WPAD_ENABLED
 
 /* Nunchuk stick -> Q3 joystick axes (mag/ang to X/Y) */
@@ -433,11 +426,16 @@ static void WM_NunchukMovement(const struct joystick_t *js)
     }
 }
 
-/* IR pointer -> SE_MOUSE deltas (center-relative in-game, position-relative in menus) */
+/* IR pointer -> two-layer aim:
+   Layer 1 (body turn): slow SE_MOUSE deltas from center.
+   Layer 2 (fine aim):  wii_ir_aim_x/y normalized screen-position offset that
+                        CL_FinishMove bakes into the sent angles, so the shot
+                        lands where the IR dot points. */
 static void WM_IRAiming(const struct ir_t *ir, qboolean in_game)
 {
     if (!ir->valid && !ir->smooth_valid) {
         s_ir_was_valid = qfalse;
+        wii_ir_aim_x = wii_ir_aim_y = 0.0f;
         return;
     }
 
@@ -448,6 +446,17 @@ static void WM_IRAiming(const struct ir_t *ir, qboolean in_game)
         float dx = ix - IR_CENTER_X;
         float dy = iy - IR_CENTER_Y;
 
+        /* Layer 2: normalized fine-aim offset, clamped to [-1, 1] */
+        float nx = dx / IR_CENTER_X;
+        float ny = dy / IR_CENTER_Y;
+        if (nx >  1.0f) nx =  1.0f;
+        if (nx < -1.0f) nx = -1.0f;
+        if (ny >  1.0f) ny =  1.0f;
+        if (ny < -1.0f) ny = -1.0f;
+        wii_ir_aim_x = nx;
+        wii_ir_aim_y = ny;
+
+        /* Layer 1: slow body turn via SE_MOUSE (existing edge-push logic) */
         if (dx > -IR_DEADZONE && dx < IR_DEADZONE) dx = 0.0f;
         if (dy > -IR_DEADZONE && dy < IR_DEADZONE) dy = 0.0f;
 
@@ -467,6 +476,7 @@ static void WM_IRAiming(const struct ir_t *ir, qboolean in_game)
         if (mx != 0 || my != 0)
             Com_QueueEvent(0, SE_MOUSE, mx, my, 0, NULL);
     } else {
+        wii_ir_aim_x = wii_ir_aim_y = 0.0f;
         if (s_ir_was_valid) {
             float dx = ix - s_ir_last_x;
             float dy = iy - s_ir_last_y;
@@ -628,10 +638,9 @@ static void WM_Input_Frame(void)
 #endif
 
     if (has_classic) {
-        /* First time CC is detected: re-apply data format so wiiuse_set_report_type
-           picks WM_RPT_BTN_ACC_IR_EXP with EXP now set. Without this, the format
-           update from the CC handshake may race with our frame loop and the
-           Wiimote keeps sending WM_RPT_BTN_ACC_IR (no expansion data). */
+        /* On first CC detect, re-apply data format so wiiuse_set_report_type
+           picks WM_RPT_BTN_ACC_IR_EXP with EXP set. Without this the CC
+           handshake races and the Wiimote keeps reporting no expansion data. */
         if (!s_cc_fmt_triggered) {
             s_cc_fmt_triggered = qtrue;
             WPAD_SetDataFormat(WPAD_CHAN_0, WPAD_FMT_BTNS_ACC_IR);
@@ -641,7 +650,6 @@ static void WM_Input_Frame(void)
         /* CC not present — reset so we retrigger format if CC is re-attached */
         s_cc_fmt_triggered = qfalse;
 
-        /* ---- Wiimote menu mode ---- */
         for (i = 0; i < (int)WM_MENU_BTN_COUNT; i++)
             InjectKey(s_wm_menu_buttons[i].q3key,
                       (held & s_wm_menu_buttons[i].bit) ? qtrue : qfalse);
@@ -674,7 +682,6 @@ static void WM_Input_Frame(void)
     } else {
         s_cc_fmt_triggered = qfalse;
 
-        /* ---- Wiimote game mode ---- */
         SetWiimoteBindings();
 
         for (i = 0; i < (int)WM_BTN_COUNT; i++)
@@ -691,8 +698,6 @@ static void WM_Input_Frame(void)
 }
 
 #endif /* WPAD_ENABLED */
-
-/* ---------- USB keyboard ---------- */
 
 static qboolean s_kb_inited  = qfalse;
 static qboolean s_mouse_inited = qfalse;
@@ -826,8 +831,6 @@ static void USB_Keyboard_Frame(void)
     }
 }
 
-/* ---------- USB mouse ---------- */
-
 static u8 s_mouse_old_buttons = 0;
 
 /* Drain pending USB mouse events and inject into Q3 */
@@ -872,8 +875,6 @@ static void USB_Mouse_Frame(void)
     }
     s_mouse_old_buttons = cur_buttons;
 }
-
-/* ---------- Public API ---------- */
 
 void Wii_Input_Init(void)
 {
@@ -946,6 +947,19 @@ void Wii_Input_SetCvars(void)
     Cvar_Set("vm_cgame", "1");
     Cvar_Set("vm_game",  "1");
 
+    Cvar_Set("cg_drawFPS",      "0");
+    Cvar_Set("cg_drawTimer",    "0");
+    Cvar_Set("cg_drawSnapshot", "0");
+    Cvar_Set("com_speeds",      "0");
+    Cvar_Set("r_speeds",        "0");
+
+    /* Only override name if it's still the default; preserve user customisation */
+    {
+        const char *n = Cvar_VariableString("name");
+        if ( !n[0] || !Q_stricmp(n, "UnnamedPlayer") ) {
+            Cvar_Set("name", "Quake3Wii");
+        }
+    }
 }
 
 void Wii_Input_Frame(void)

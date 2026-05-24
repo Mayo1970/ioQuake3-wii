@@ -59,7 +59,7 @@ static qboolean Wii_MountSD(void)
     return qtrue;
 }
 
-extern void Wii_MEM2_Init(void);
+extern u32 Wii_MEM2_Init(void);
 
 /* libogc calls __sys_power_cb without NULL check — must provide handlers */
 static void wii_power_cb(void)              { exit(0); }
@@ -89,8 +89,8 @@ int main(int argc, char *argv[])
 {
     Wii_InitConsole();
     WII_DBG_PRINTF("ioquake3-wii starting...\n");
-    Wii_MEM2_Init();
-    WII_DBG_PRINTF("[wii] MEM2 init done\n");
+    u32 mem2_bump_mb = Wii_MEM2_Init();
+    WII_DBG_PRINTF("[wii] MEM2 init done (%u MB bump)\n", (unsigned)mem2_bump_mb);
 
     if (!Wii_MountSD()) {
         printf("FATAL: could not mount SD. Halting.\n");
@@ -124,6 +124,9 @@ int main(int argc, char *argv[])
     WII_DBG_PRINTF("[wii] Audio OK\n");
     boot_mark("Audio init done");
 
+    /* Leave 1 MB headroom for bump allocator alignment/overhead */
+    u32 hunk_mb = (mem2_bump_mb > 1) ? mem2_bump_mb - 1 : mem2_bump_mb;
+
     static char cmdline[1024];
     snprintf(cmdline, sizeof(cmdline),
         "+set fs_basepath sd:/quake3 "
@@ -131,8 +134,10 @@ int main(int argc, char *argv[])
         "+set fs_steampath \"\" "
         "+set fs_gogpath \"\" "
         "+set com_basegame " WII_BASEGAME " "
-        "+set com_hunkMegs 32 "
-        "+set com_zoneMegs 8 "
+        "+set com_hunkMegs %u "
+        "+set com_zoneMegs 8 ",
+        (unsigned)hunk_mb);
+    snprintf(cmdline + strlen(cmdline), sizeof(cmdline) - strlen(cmdline),
         "+set r_mode -1 "
         "+set r_picmip 2 "
         "+set r_dynamic 0 "
@@ -150,18 +155,17 @@ int main(int argc, char *argv[])
         "+set sv_pure 0 "
         "+set sv_maxclients 8 "
 
+#if defined(STANDALONEOA)
+        "+set com_standalone 1 "
+#else
         "+set com_standalone 0 "
+#endif
+        "+set cl_allowDownload 1 "
         "+set net_enabled 1 "
         "+set net_port 27961 "
         "+set fraglimit 0 "
         "+set timelimit 0 "
         "+set com_logfile 2 "
-        "+set name Quake3Wii "
-        "+set cg_drawFPS 0 "
-        "+set cg_drawTimer 0 "
-        "+set cg_drawSnapshot 0 "
-        "+set com_speeds 0 "
-        "+set r_speeds 0 "
         "+set vm_ui 1 "
         "+set vm_cgame 1 "
         "+set vm_game 1"

@@ -269,6 +269,10 @@ extern int demo_protocols[];
 #endif
 
 #ifndef STANDALONE
+  #ifdef STANDALONEOA
+    #define AUTHORIZE_SERVER_NAME	"dpmaster.deathmask.net"
+    #define PROTOCOL_LEGACY_VERSION	71
+  #endif
   #ifndef AUTHORIZE_SERVER_NAME
     #define	AUTHORIZE_SERVER_NAME	"authorize.quake3arena.com"
   #endif

@@ -81,14 +81,8 @@ qboolean SNDDMA_Init(void)
     return qtrue;
 }
 
-/*
- * Derive hardware read position from ASND's tick counter.
- *
- * ASND_GetTickCounterVoice returns ticks at ASND_OUTPUT_RATE (48 kHz).
- * Convert to source-rate sample-pairs, wrap to ring size, and return the
- * interleaved sample count so S_GetSoundtime's /dma.channels gives the
- * correct frame offset in [0, SND_SAMPLES).
- */
+/* ASND tick counter runs at ASND_OUTPUT_RATE; convert to source-rate frames
+ * and return interleaved count so S_GetSoundtime's /dma.channels works. */
 int SNDDMA_GetDMAPos(void)
 {
     if (!s_snd_init)

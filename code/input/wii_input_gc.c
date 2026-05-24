@@ -1,4 +1,4 @@
-/* GameCube controller input — dual-stick FPS layout for ioquake3-wii */
+/* GameCube controller input — dual-stick FPS layout */
 
 #include <gccore.h>
 #include <ogc/pad.h>

@@ -1,4 +1,21 @@
 # ioquake3-wii Makefile
+#
+# Convenience targets (all accept a trailing "dol" to also convert to .dol):
+#   make dol              - Q3A release          → build/boot.dol
+#   make oa dol           - Open Arena release   → build_oa/boot.dol
+#   make debug dol        - Q3A debug            → build/boot.dol
+#   make oa-debug dol     - OA debug             → build_oa/boot.dol
+#   make 240p dol         - Q3A 240p NTSC        → build/boot.dol
+#   make 240p-pal dol     - Q3A 264p PAL         → build/boot.dol
+#   make oa-240p dol      - OA 240p NTSC         → build_oa/boot.dol
+#   make oa-240p-pal dol  - OA 264p PAL          → build_oa/boot.dol
+#   make all-flavors dol      - Q3A + OA release
+#   make all-flavors-240p dol - Q3A + OA 240p NTSC
+#   make all-flavors-240p-pal dol - Q3A + OA 264p PAL
+#   make clean            - Clean Q3A build dir
+#   make oa clean         - Clean OA build dir
+#
+# Build from devkitPro MSYS2 shell only (sets DEVKITPRO / DEVKITPPC / PATH).
 ifeq ($(strip $(DEVKITPRO)),)
   $(error "Set DEVKITPRO in your environment. export DEVKITPRO=/opt/devkitpro")
 endif
@@ -8,12 +25,91 @@ endif
 
 include $(DEVKITPPC)/wii_rules
 
+#---------------------------------------------------------------------------------
+# Convenience phony targets — recurse with the right internal flags
+#---------------------------------------------------------------------------------
+.PHONY: oa debug oa-debug 240p 240p-pal oa-240p oa-240p-pal \
+        all-flavors all-flavors-240p all-flavors-240p-pal
+
+oa:
+	@$(MAKE) _OA=1
+
+debug:
+	@$(MAKE) _DEBUG=1
+
+oa-debug:
+	@$(MAKE) _OA=1 _DEBUG=1
+
+240p:
+	@$(MAKE) _240P=1
+
+240p-pal:
+	@$(MAKE) _240P=1 _PAL=1
+
+oa-240p:
+	@$(MAKE) _OA=1 _240P=1
+
+oa-240p-pal:
+	@$(MAKE) _OA=1 _240P=1 _PAL=1
+
+all-flavors:
+	@$(MAKE)
+	@$(MAKE) _OA=1
+
+all-flavors-240p:
+	@$(MAKE) _240P=1
+	@$(MAKE) _OA=1 _240P=1
+
+all-flavors-240p-pal:
+	@$(MAKE) _240P=1 _PAL=1
+	@$(MAKE) _OA=1 _240P=1 _PAL=1
+
+#---------------------------------------------------------------------------------
+# Internal build configuration (set by the phony targets above)
+#---------------------------------------------------------------------------------
+_OA    ?= 0
+_DEBUG ?= 0
+_240P  ?= 0
+_PAL   ?= 0
+
+ifeq ($(_OA),1)
+  BUILD          := build_oa
+  GAMEMODE_FLAGS := -DSTANDALONEOA -DWII_BASEGAME=\"baseoa\"
+  DOL_DEST       := /apps/openarena/boot.dol
+  DOL_NOTE       := OA data: sd:/quake3/baseoa/pak*.pk3
+else
+  BUILD          := build
+  GAMEMODE_FLAGS := -DWII_BASEGAME=\"baseq3\"
+  DOL_DEST       := /apps/ioquake3/boot.dol
+  DOL_NOTE       :=
+endif
+
+ifeq ($(_DEBUG),1)
+  WII_DEBUG_FLAG := -DWII_DEBUG
+else
+  WII_DEBUG_FLAG :=
+endif
+
+ifeq ($(_240P),1)
+  ifeq ($(_PAL),1)
+    WII_240P_FLAG := -DWII_240P=1 -DWII_PAL=1
+  else
+    WII_240P_FLAG := -DWII_240P=1
+  endif
+else
+  WII_240P_FLAG :=
+endif
+
 # Input backend
 INPUT_BACKEND ?= wiimote
+ifeq ($(INPUT_BACKEND),wiimote)
+  WII_INPUT_FLAGS := -DWPAD_ENABLED=1
+else
+  WII_INPUT_FLAGS := -DWPAD_ENABLED=0
+endif
 
 # Project identity
-TARGET      := ioquake3_wii
-BUILD       := build
+TARGET      := boot
 SOURCES     := code \
                code/renderer \
                code/audio \
@@ -21,15 +117,9 @@ SOURCES     := code \
 PORTDIR     := $(CURDIR)
 
 WII_INPUT_SRC := code/input/wii_input.c
-ifeq ($(INPUT_BACKEND),wiimote)
-  WII_INPUT_FLAGS := -DWPAD_ENABLED=1
-else
-  WII_INPUT_FLAGS := -DWPAD_ENABLED=0
-endif
-INCLUDES    := code
+INCLUDES      := code
 
 # OpenGX — prebuilt library + headers vendored under libs/opengx.
-# No pacman install or OpenGX build needed.
 OPENGX_INC  := libs/opengx/include
 OPENGX_LIB  := libs/opengx/lib
 
@@ -48,6 +138,7 @@ IOQ3_SRCS   := \
   code/qcommon/files.c \
   code/qcommon/huffman.c \
   code/qcommon/md4.c \
+  code/qcommon/md5.c \
   code/qcommon/msg.c \
   code/qcommon/net_chan.c \
   code/qcommon/net_ip.c \
@@ -188,20 +279,12 @@ endif
 ZLIB_H_COPY  := code/qcommon/zlib.h
 ZCONF_H_COPY := code/qcommon/zconf.h
 
-# Compiler flags
-ifeq ($(DEBUG),1)
-  WII_DEBUG_FLAG := -DWII_DEBUG
-else
-  WII_DEBUG_FLAG :=
-endif
-
-GAMEMODE_FLAGS := -DWII_BASEGAME=\"baseq3\"
-
 CFLAGS  = $(MACHDEP) \
           -pipe -O2 -Wall -Wno-unused-variable -Wno-missing-braces -Wno-cpp \
           $(WII_DEBUG_FLAG) \
           $(GAMEMODE_FLAGS) \
           $(WII_INPUT_FLAGS) \
+          $(WII_240P_FLAG) \
           -msdata=none -G 0 \
           -DGEKKO -DWII \
           -DMAX_CLIENTS=8 \
@@ -223,7 +306,7 @@ CFLAGS  = $(MACHDEP) \
 
 CXXFLAGS = $(CFLAGS)
 
-LDFLAGS = $(MACHDEP) -Wl,-Map,$(BUILD)/ioquake3_wii.elf.map -Wl,--wrap,CL_GenerateQKey -Wl,--wrap,VM_Call -Wl,--wrap,calloc -Wl,--wrap,__malloc_lock -Wl,--wrap,__malloc_unlock -G 0 -T rvl.ld
+LDFLAGS = $(MACHDEP) -Wl,-Map,$(BUILD)/boot.elf.map -Wl,--wrap,CL_GenerateQKey -Wl,--wrap,VM_Call -Wl,--wrap,calloc -Wl,--wrap,__malloc_lock -Wl,--wrap,__malloc_unlock -G 0 -T rvl.ld
 
 ifeq ($(INPUT_BACKEND),gamecube)
   LIBS  = -L$(LIBOGC_LIB) -L$(OPENGX_LIB) -lopengx -Wl,--start-group -lasnd -logc -ldi -lfat -lm -Wl,--end-group $(ZLIB_LIBS) -L$(JPEG_LIBDIR) -ljpeg
@@ -241,12 +324,13 @@ ALL_SRCS     := $(WII_C_SRCS) $(WII_CPP_SRCS) $(IOQ3_SRCS) $(IOQ3_ZLIB_SRCS)
 OBJS := $(patsubst %.c,$(BUILD)/%.o,$(filter %.c,$(ALL_SRCS))) \
         $(patsubst %.cpp,$(BUILD)/%.o,$(filter %.cpp,$(ALL_SRCS)))
 
+#---------------------------------------------------------------------------------
 # Build rules
-.PHONY: all clean dol prebuild
+#---------------------------------------------------------------------------------
+.PHONY: all dol prebuild clean
 
 all: $(BUILD)/$(TARGET).elf
 
-# Copy zlib headers next to unzip.h before compiling.
 prebuild:
 	@cp $(ZLIB_DIR)/zlib.h $(ZLIB_H_COPY)
 	@test -f $(ZLIB_DIR)/zconf.h && cp $(ZLIB_DIR)/zconf.h $(ZCONF_H_COPY) || true
@@ -294,6 +378,7 @@ $(BUILD)/code/client/cl_main.o: code/client/cl_main.c
 	@mkdir -p $(dir $@)
 	@echo "CC $< [wii-patched]"
 	$(CC) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/code/qcommon/common.o: code/qcommon/common.c
 	@mkdir -p $(dir $@)
 	@echo "CC $< [wii-patched]"
@@ -312,11 +397,13 @@ $(BUILD)/%.o: %.cpp
 	@echo "CXX $<"
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# Convert ELF to DOL for Homebrew Channel
 dol: $(BUILD)/$(TARGET).elf
 	@echo "Converting to .dol"
 	elf2dol $(BUILD)/$(TARGET).elf $(BUILD)/$(TARGET).dol
-	@echo "Done! Copy $(BUILD)/$(TARGET).dol to your SD card: /apps/ioquake3/boot.dol"
+	@echo "Done! Copy $(BUILD)/$(TARGET).dol to your SD card as $(DOL_DEST)"
+ifneq ($(DOL_NOTE),)
+	@echo "$(DOL_NOTE)"
+endif
 
 clean:
 	@rm -rf $(BUILD)

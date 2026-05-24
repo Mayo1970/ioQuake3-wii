@@ -1,4 +1,4 @@
-/* qgl_wii.c — Wire ioQ3's qgl* function pointers to OpenGX. */
+/* Wire ioQ3's qgl* function pointers to OpenGX. */
 
 #include "tr_local.h"
 #ifdef WII_DEBUG
@@ -44,7 +44,6 @@ static void noop_CopyTexSubImage2D(GLenum tgt, GLint lvl,
 
 void QGL_Init(void)
 {
-    /* ---- QGL_1_1_PROCS ---- */
     qglBindTexture        = glBindTexture;
     qglBlendFunc          = glBlendFunc;
     qglClear              = glClear;
@@ -82,7 +81,6 @@ void QGL_Init(void)
     qglViewport           = glViewport;
 #endif
 
-    /* ---- QGL_1_1_FIXED_FUNCTION_PROCS ---- */
     qglAlphaFunc          = glAlphaFunc;
     qglColor4f            = glColor4f;
     qglColorPointer       = glColorPointer;
@@ -99,13 +97,11 @@ void QGL_Init(void)
     qglTranslatef         = glTranslatef;
     qglVertexPointer      = glVertexPointer;
 
-    /* ---- QGL_DESKTOP_1_1_PROCS ---- */
     qglClearDepth         = glClearDepth;
     qglDepthRange         = glDepthRange;
     qglDrawBuffer         = noop_DrawBuffer;
     qglPolygonMode        = noop_PolygonMode;
 
-    /* ---- QGL_DESKTOP_1_1_FIXED_FUNCTION_PROCS ---- */
     qglArrayElement       = glArrayElement;
     qglBegin              = glBegin;
     qglClipPlane          = glClipPlane;
@@ -120,19 +116,18 @@ void QGL_Init(void)
     qglVertex3f           = glVertex3f;
     qglVertex3fv          = glVertex3fv;
 
-    /* ---- ARB multitexture ---- */
     qglActiveTextureARB       = (void(*)(GLenum))glActiveTexture;
     qglClientActiveTextureARB = (void(*)(GLenum))glClientActiveTexture;
     qglMultiTexCoord2fARB     = (void(*)(GLenum,GLfloat,GLfloat))glMultiTexCoord2f;
 
-    /* CVA — no-op stubs force primitives=2 (glDrawElements) instead of the
+    /* CVA no-op stubs force primitives=2 (glDrawElements) instead of the
      * glBegin/glEnd/glArrayElement path, which OpenGX doesn't handle reliably
-     * for MD3 entity models. Mirrors the PS3 port's approach. */
+     * for MD3 entity models. */
     qglLockArraysEXT   = noop_LockArrays;
     qglUnlockArraysEXT = noop_UnlockArrays;
 
 #ifdef WII_DEBUG
-    /* Override with diagnostic shims — must be last to win over all above assignments */
+    /* Diagnostic shims — must be last to win over all above assignments */
     qglViewport = diag_Viewport;
     qglScissor  = diag_Scissor;
     qglOrtho    = diag_Ortho;

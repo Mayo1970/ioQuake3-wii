@@ -1,5 +1,3 @@
-/* GX surface management + OpenGX init for ioquake3-wii */
-
 #include <gccore.h>
 #include <malloc.h>
 #include <string.h>
@@ -23,7 +21,15 @@ qboolean Wii_GX_Init(void)
         return qtrue;
 
     VIDEO_Init();
+#if defined(WII_240P) && WII_240P
+#  if defined(WII_PAL) && WII_PAL
+    s_rmode = &TVPal264Ds;
+#  else
+    s_rmode = &TVNtsc240Ds;
+#  endif
+#else
     s_rmode = VIDEO_GetPreferredMode(NULL);
+#endif
 
     s_framebuf[0] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(s_rmode));
     s_framebuf[1] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(s_rmode));

@@ -1,4 +1,4 @@
-/* wii_platform.h — force-included before every TU via -include */
+/* Force-included before every TU via -include */
 
 #ifndef WII_PLATFORM_H
 #define WII_PLATFORM_H
@@ -32,7 +32,7 @@
 #  define DLL_EXT ".so"
 #endif
 
-/* ID_INLINE — define early so q_platform.h skips its own */
+/* Define early so q_platform.h skips its own */
 #ifndef ID_INLINE
 #  define ID_INLINE __inline__
 #endif
@@ -56,12 +56,12 @@
 #  define MAP_ANON      MAP_ANONYMOUS
 #endif
 
-/* mprotect stub — all Wii memory is executable */
+/* All Wii memory is executable */
 static inline int mprotect(void *addr, size_t len, int prot) {
     (void)addr; (void)len; (void)prot; return 0;
 }
 
-/* timersub for vm_powerpc.c timing printout — libogc has gettimeofday already */
+/* timersub for vm_powerpc.c timing printout (libogc has gettimeofday already) */
 #include <sys/time.h>
 #ifndef timersub
 #define timersub(a, b, res) do { \
@@ -78,9 +78,7 @@ static inline int mprotect(void *addr, size_t len, int prot) {
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #pragma GCC diagnostic ignored "-Wunused-but-set-variable"
 
-/* COLOR_* undefs are handled in wii_net.h after network.h is included */
-
-/* Network stubs — no ifaddrs.h, no IPv6 on Wii */
+/* No ifaddrs.h, no IPv6 on Wii */
 #define HAVE_SA_LEN          0
 #undef  HAVE_SOCKADDR_SA_LEN
 #define NET_ENABLE_IPV6      0
@@ -90,22 +88,21 @@ static inline int mprotect(void *addr, size_t len, int prot) {
 #endif
 
 /*
- * netchan memory reduction — shrink per-client allocations so 8 clients
- * fit in the Wii's small zone. MAX_RELIABLE_COMMANDS must stay at stock 64:
+ * Netchan memory tuning. MAX_RELIABLE_COMMANDS must stay at stock 64:
  * servers with custom content burst >16 reliable commands on connect,
- * causing CL_AddReliableCommand to Com_Error(ERR_DROP) → hang.
+ * causing CL_AddReliableCommand to Com_Error(ERR_DROP).
  */
 #ifndef MAX_RELIABLE_COMMANDS
-#define MAX_RELIABLE_COMMANDS   64      /* stock: 64  — must be power-of-2 */
+#define MAX_RELIABLE_COMMANDS   64      /* must be power-of-2 */
 #endif
 #ifndef PACKET_BACKUP
-#define PACKET_BACKUP           16      /* stock: 32  — must be power-of-2 */
+#define PACKET_BACKUP           16      /* stock 32; must be power-of-2 */
 #endif
 #ifndef PACKET_MASK
 #define PACKET_MASK             (PACKET_BACKUP-1)
 #endif
 #ifndef MAX_DOWNLOAD_WINDOW
-#define MAX_DOWNLOAD_WINDOW     4       /* stock: 48  — no net downloads on Wii */
+#define MAX_DOWNLOAD_WINDOW     48
 #endif
 
 /* Override ioQ3 hunk/zone minimums for Wii's 88 MB total RAM */
@@ -118,14 +115,12 @@ static inline int mprotect(void *addr, size_t len, int prot) {
 #define DEF_COMHUNKMEGS           32
 #define DEF_COMZONEMEGS           4
 
-/* Reduce audio BSS: stock s_rawsamples is 129×16384×8 = 16 MB, way too large */
+/* Reduce audio BSS: stock s_rawsamples is 129×16384×8 = 16 MB, too large for Wii */
 #ifndef MAX_RAW_STREAMS
 #define MAX_RAW_STREAMS  1      /* stock: MAX_CLIENTS*2+1 = 129 */
 #endif
 #ifndef MAX_RAW_SAMPLES
-#define MAX_RAW_SAMPLES  16384  /* stock value; with MAX_RAW_STREAMS=1 this is 128 KB.
-                                 * Previously 4096 — too small, RoQ decoder bursts
-                                 * overflowed the ring and caused crunchy cinematic audio. */
+#define MAX_RAW_SAMPLES  16384  /* must stay at stock; smaller starves RoQ decoder bursts */
 #endif
 
 /* Undef libogc COLOR_* macros — ioQ3 redefines them as char literals */
@@ -139,7 +134,7 @@ static inline int mprotect(void *addr, size_t len, int prot) {
 #undef COLOR_WHITE
 #undef COLOR_ORANGE
 
-/* Diagnostic logging — writes to sd:/quake3/diag.txt (WII_DEBUG only) */
+/* Diagnostic logging to sd:/quake3/diag.txt (WII_DEBUG only) */
 #include <stdio.h>
 #include <stdarg.h>
 #ifdef WII_DEBUG
@@ -159,7 +154,6 @@ static inline void wii_diag(const char *fmt, ...) {
 static inline void wii_diag(const char *fmt, ...) { (void)fmt; }
 #endif
 
-/* GL compatibility — use our stub SDL_opengl.h via -I include path */
 #define USE_INTERNAL_SDL_HEADERS
 
 #endif /* WII_PLATFORM_H */

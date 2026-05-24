@@ -15,7 +15,7 @@
 
 #include "qcommon/q_shared.h"
 #include "qcommon/qcommon.h"
-#include "renderercommon/tr_types.h"  /* glconfig_t */
+#include "renderercommon/tr_types.h"
 #include "keycodes.h"
 extern int Key_GetCatcher(void);
 #define KEYCATCH_UI 4
@@ -61,7 +61,6 @@ void Sys_Sleep(int msec)
     }
 }
 
-/* Events are injected via Com_QueueEvent() in Wii_Input_Frame() */
 sysEvent_t Sys_GetEvent(void)
 {
     sysEvent_t ev = { 0 };
@@ -83,7 +82,6 @@ char *Sys_Cwd(void)
 
 qboolean Sys_RandomBytes(byte *string, int len)
 {
-    /* Seed from hardware tick counter + wall clock for per-boot uniqueness */
     static unsigned int seed = 0;
     static qboolean seeded = qfalse;
     if (!seeded) {
@@ -147,7 +145,6 @@ char **Sys_ListFiles(const char *directory, const char *extension,
                 continue;
         }
 
-        /* Reserve one slot for the NULL sentinel */
         if (nfiles + 1 >= nalloc) {
             char **newlist;
             nalloc *= 2;
@@ -299,7 +296,7 @@ void IN_Shutdown(void)         { }
 void IN_Restart(void)          { }
 void IN_Frame(void)            { Wii_Input_Frame(); }
 
-/* Sound: snd_main.c is not compiled; we delegate to S_Base_* in snd_dma.c */
+/* snd_main.c is not compiled; delegate to S_Base_* in snd_dma.c */
 #include "client/snd_local.h"
 
 extern qboolean S_Base_Init(soundInterface_t *si);
@@ -322,7 +319,6 @@ extern void     S_Base_StartBackgroundTrack(const char *intro, const char *loop)
 extern void     S_Base_StopBackgroundTrack(void);
 extern void     S_Base_Update(void);
 
-/* Cvars normally owned by snd_main.c (not compiled on Wii) */
 cvar_t *s_volume;
 cvar_t *s_muted;
 cvar_t *s_musicVolume;
@@ -382,9 +378,6 @@ void     CL_TakeVideoFrame(void)               { }
 void     CL_WriteAVIVideoFrame(const byte *d,int s) { (void)d;(void)s; }
 void     CL_WriteAVIAudioFrame(const byte *d,int s) { (void)d;(void)s; }
 
-char *Com_MD5File(const char *f,int l,const char *p,int pl)
-{ (void)f;(void)l;(void)p;(void)pl; return ""; }
-
 /* getaddrinfo/freeaddrinfo — IPv4-only; libogc declares but doesn't implement */
 #include <arpa/inet.h>
 int getaddrinfo(const char *node, const char *service,
@@ -407,7 +400,6 @@ int getaddrinfo(const char *node, const char *service,
     if (!node || !node[0]) {
         sin->sin_addr.s_addr = INADDR_ANY;
     } else if (inet_aton(node, &sin->sin_addr)) {
-        /* numeric IP */
     } else {
         struct hostent *he = net_gethostbyname(node);
         if (!he || !he->h_addr_list || !he->h_addr_list[0]) {
@@ -456,7 +448,6 @@ int gethostname(char *n,size_t l)      { if(n&&l>0)n[0]='\0'; return 0; }
 
 const struct in6_addr in6addr_any = {{ 0 }};
 
-/* minizip file I/O callbacks using standard fopen */
 #include "zlib.h"
 #include "ioapi.h"
 
@@ -498,7 +489,6 @@ void fill_fopen_filefunc(zlib_filefunc_def *p)
 #include <sys/types.h>
 mode_t umask(mode_t mask) { (void)mask; return 0022; }
 
-/* Forward FIONBIO to net_ioctl */
 int ioctl(int fd, int request, ...)
 {
     va_list ap;
@@ -508,7 +498,7 @@ int ioctl(int fd, int request, ...)
     return net_ioctl(fd, request, arg);
 }
 
-/* mmap/munmap — route large allocs to MEM2 bump allocator, fall back to memalign */
+/* mmap/munmap route large allocs to MEM2 bump; smaller fall back to memalign */
 #include <malloc.h>
 void *wii_mem2_alloc(size_t size);
 
@@ -547,24 +537,22 @@ static u32   mem2_left = 0;
 
 #define MEM2_BUMP_SIZE (33u * 1024u * 1024u)
 
-void Wii_MEM2_Init(void)
+/* Returns actual reserved size in MB (may be < 33 on constrained IOS). */
+u32 Wii_MEM2_Init(void)
 {
     u8 *lo = (u8 *)SYS_GetArena2Lo();
     u8 *hi = (u8 *)SYS_GetArena2Hi();
     u32 total = (u32)(hi - lo);
+    u32 bump  = (total >= MEM2_BUMP_SIZE) ? MEM2_BUMP_SIZE : total;
 
-    if (total >= MEM2_BUMP_SIZE) {
-        mem2_base = hi - MEM2_BUMP_SIZE;
-        mem2_ptr  = mem2_base;
-        mem2_left = MEM2_BUMP_SIZE;
-    } else {
-        mem2_base = lo;
-        mem2_ptr  = lo;
-        mem2_left = total;
-    }
+    mem2_base = hi - bump;
+    mem2_ptr  = mem2_base;
+    mem2_left = bump;
 
     /* Cap sbrk heap so it can't grow into the bump region */
     SYS_SetArena2Hi(mem2_base);
+
+    return bump >> 20;  /* MB */
 }
 
 
@@ -580,9 +568,8 @@ void *wii_mem2_alloc(size_t size)
     return NULL;
 }
 
-/* Route large calloc to MEM2 bump allocator.
- * Threshold is 16 MB so the Q3 hunk (32 MB) lands in MEM2 bump while the
- * zone (~8 MB) and smaller allocs stay on the sbrk heap. */
+/* 16 MB threshold so the 32 MB hunk goes to MEM2 bump; zone and smaller
+ * allocs stay on sbrk heap. */
 extern void *__real_calloc(size_t nmemb, size_t size);
 
 void *__wrap_calloc(size_t nmemb, size_t size)
@@ -614,9 +601,8 @@ void __wrap_CL_GenerateQKey(void)
 {
 }
 
-/* VM_Call wrap — intercept CD key checks and UIMENU_NEED_CD (UI VM only).
- * Callnum enums overlap across VMs (e.g. BOTAI_START_FRAME = UI_HASUNIQUECDKEY = 10),
- * so we must check vm == uivm before applying UI-specific intercepts. */
+/* Callnum enums overlap across VMs (BOTAI_START_FRAME == UI_HASUNIQUECDKEY == 10);
+ * must check vm == uivm before applying UI-specific intercepts. */
 #define WII_UI_SET_ACTIVE_MENU  7
 #define WII_UI_HASUNIQUECDKEY   10
 #define WII_UIMENU_MAIN         1
@@ -649,7 +635,6 @@ intptr_t QDECL __wrap_VM_Call( void *vm, int callnum, ... )
         args[8], args[9], args[10], args[11]);
 }
 
-/* Recursive LWP mutex for newlib malloc thread-safety */
 #include <ogc/mutex.h>
 
 static mutex_t s_malloc_mtx = LWP_MUTEX_NULL;

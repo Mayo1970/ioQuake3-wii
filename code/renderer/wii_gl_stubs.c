@@ -1,10 +1,9 @@
-/* wii_gl_stubs.c — qgl* function-pointer definitions and platform GL stubs. */
+/* qgl* function-pointer definitions and platform GL stubs. */
 
 #include <gccore.h>
 #include <string.h>
 #include "tr_local.h"
 
-/* Define (allocate) each qgl* pointer to NULL; typedefs come from qgl.h. */
 #define GLE(ret, name, ...) name##proc * qgl##name = NULL;
 QGL_1_1_PROCS;
 QGL_1_1_FIXED_FUNCTION_PROCS;

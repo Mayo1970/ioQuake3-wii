@@ -1,7 +1,5 @@
 /*
- * wii_cmpr.c — GX_TF_CMPR encoder / decoder for ioquake3-wii
- *
- * See wii_cmpr.h for the design constraints and API contract.
+ * GX_TF_CMPR encoder / decoder. See wii_cmpr.h for design constraints and API.
  *
  * GX_TF_CMPR memory layout
  * ─────────────────────────
@@ -41,12 +39,8 @@
 
 #include "wii_cmpr.h"
 
-#include <string.h>  /* memset */
-#include <limits.h>  /* INT_MAX */
-
-/* =========================================================================
-   RGB565 helpers
-   ========================================================================= */
+#include <string.h>
+#include <limits.h>
 
 /*
  * pack_rgb565 — quantise RGB888 to RGB565 with round-to-nearest.
@@ -80,9 +74,7 @@ static void expand_rgb565(uint16_t c, uint8_t *r, uint8_t *g, uint8_t *b)
     *b = (uint8_t)((b5 << 3) | (b5 >> 2));
 }
 
-/* =========================================================================
-   Big-endian I/O (GX expects big-endian RGB565 words)
-   ========================================================================= */
+/* Big-endian I/O — GX expects big-endian RGB565 words */
 
 static void write_u16be(uint8_t *dst, uint16_t v)
 {
@@ -94,10 +86,6 @@ static uint16_t read_u16be(const uint8_t *src)
 {
     return ((uint16_t)src[0] << 8) | (uint16_t)src[1];
 }
-
-/* =========================================================================
-   DXT1 block encoder
-   ========================================================================= */
 
 /*
  * encode_dxt1_block — encode one 4×4 RGB888 region into 8 bytes of DXT1.
@@ -117,7 +105,7 @@ static uint16_t read_u16be(const uint8_t *src)
  */
 static void encode_dxt1_block(const uint8_t *rgb, int stride, uint8_t *out)
 {
-    /* --- 1. Bounding box ------------------------------------------------- */
+    /* 1. Bounding box */
     uint8_t rmin = 255u, gmin = 255u, bmin = 255u;
     uint8_t rmax =   0u, gmax =   0u, bmax =   0u;
 
@@ -134,18 +122,17 @@ static void encode_dxt1_block(const uint8_t *rgb, int stride, uint8_t *out)
         }
     }
 
-    /* --- 2. Quantise endpoints to RGB565 (round-to-nearest) -------------- */
+    /* 2. Quantise endpoints to RGB565 (round-to-nearest) */
     uint16_t e0 = pack_rgb565(rmax, gmax, bmax);
     uint16_t e1 = pack_rgb565(rmin, gmin, bmin);
 
-    /* --- 3. Guarantee 4-colour mode: e0 must be strictly greater than e1 - */
+    /* 3. Guarantee 4-colour mode: e0 must be strictly greater than e1 */
     if (e0 < e1) { uint16_t t = e0; e0 = e1; e1 = t; }
     if (e0 == e1) {
-        /* Solid or near-solid block: bump apart by one step. */
         if (e0 < 0xFFFFu) { e0++; } else { e1--; }
     }
 
-    /* --- 4. Build 4-colour palette in RGB888 (3/8 + 5/8 interpolation) -- */
+    /* 4. Build 4-colour palette in RGB888 (3/8 + 5/8 interpolation) */
     uint8_t pr[4], pg[4], pb[4];
     expand_rgb565(e0, &pr[0], &pg[0], &pb[0]);   /* c0 */
     expand_rgb565(e1, &pr[1], &pg[1], &pb[1]);   /* c1 */
@@ -160,7 +147,7 @@ static void encode_dxt1_block(const uint8_t *rgb, int stride, uint8_t *out)
     pg[3] = (uint8_t)((3u * pg[0] + 5u * pg[1]) >> 3);
     pb[3] = (uint8_t)((3u * pb[0] + 5u * pb[1]) >> 3);
 
-    /* --- 5. Assign pixels to nearest palette entry ----------------------- */
+    /* 5. Assign pixels to nearest palette entry */
     uint8_t idx_bytes[4] = {0u, 0u, 0u, 0u};
 
     for (int y = 0; y < 4; ++y) {
@@ -182,7 +169,7 @@ static void encode_dxt1_block(const uint8_t *rgb, int stride, uint8_t *out)
         idx_bytes[y] = row_bits;
     }
 
-    /* --- 6. Write 8-byte block ------------------------------------------- */
+    /* 6. Write 8-byte block */
     write_u16be(out,     e0);
     write_u16be(out + 2, e1);
     out[4] = idx_bytes[0];
@@ -190,10 +177,6 @@ static void encode_dxt1_block(const uint8_t *rgb, int stride, uint8_t *out)
     out[6] = idx_bytes[2];
     out[7] = idx_bytes[3];
 }
-
-/* =========================================================================
-   Public API — encoder
-   ========================================================================= */
 
 void CMPR_Encode(const uint8_t *rgb, int width, int height, uint8_t *out)
 {
@@ -221,10 +204,7 @@ void CMPR_Encode(const uint8_t *rgb, int width, int height, uint8_t *out)
     }
 }
 
-/* =========================================================================
-   Public API — decoder  (used by smoke test; not called on Wii at runtime)
-   ========================================================================= */
-
+/* Decoder used by smoke test; not called on Wii at runtime */
 void CMPR_Decode(const uint8_t *cmpr, int width, int height, uint8_t *out_rgb)
 {
     int stx        = width  / 8;
@@ -235,7 +215,6 @@ void CMPR_Decode(const uint8_t *cmpr, int width, int height, uint8_t *out_rgb)
         for (int tx = 0; tx < stx; ++tx) {
             for (int by = 0; by < 2; ++by) {
                 for (int bx = 0; bx < 2; ++bx) {
-                    /* Read one 8-byte DXT1 block */
                     uint16_t e0 = read_u16be(cmpr);
                     uint16_t e1 = read_u16be(cmpr + 2);
 
@@ -261,7 +240,6 @@ void CMPR_Decode(const uint8_t *cmpr, int width, int height, uint8_t *out_rgb)
                         pr[3] = pg[3] = pb[3] = 0u;
                     }
 
-                    /* Expand pixels to output */
                     int ox = tx * 8 + bx * 4;
                     int oy = ty * 8 + by * 4;
                     for (int y = 0; y < 4; ++y) {
