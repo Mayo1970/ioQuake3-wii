@@ -55,16 +55,16 @@ oa-240p-pal:
 	@$(MAKE) _OA=1 _240P=1 _PAL=1
 
 all-flavors:
-	@$(MAKE)
-	@$(MAKE) _OA=1
+	@$(MAKE) dol
+	@$(MAKE) _OA=1 dol
 
 all-flavors-240p:
-	@$(MAKE) _240P=1
-	@$(MAKE) _OA=1 _240P=1
+	@$(MAKE) _240P=1 dol
+	@$(MAKE) _OA=1 _240P=1 dol
 
 all-flavors-240p-pal:
-	@$(MAKE) _240P=1 _PAL=1
-	@$(MAKE) _OA=1 _240P=1 _PAL=1
+	@$(MAKE) _240P=1 _PAL=1 dol
+	@$(MAKE) _OA=1 _240P=1 _PAL=1 dol
 
 #---------------------------------------------------------------------------------
 # Internal build configuration (set by the phony targets above)
