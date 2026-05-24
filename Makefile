@@ -1,19 +1,18 @@
 # ioquake3-wii Makefile
 #
-# Convenience targets (all accept a trailing "dol" to also convert to .dol):
+# Convenience targets:
 #   make dol              - Q3A release          → build/boot.dol
-#   make oa dol           - Open Arena release   → build_oa/boot.dol
-#   make debug dol        - Q3A debug            → build/boot.dol
-#   make oa-debug dol     - OA debug             → build_oa/boot.dol
-#   make 240p dol         - Q3A 240p NTSC        → build/boot.dol
-#   make 240p-pal dol     - Q3A 264p PAL         → build/boot.dol
-#   make oa-240p dol      - OA 240p NTSC         → build_oa/boot.dol
-#   make oa-240p-pal dol  - OA 264p PAL          → build_oa/boot.dol
-#   make all-flavors dol      - Q3A + OA release
-#   make all-flavors-240p dol - Q3A + OA 240p NTSC
-#   make all-flavors-240p-pal dol - Q3A + OA 264p PAL
-#   make clean            - Clean Q3A build dir
-#   make oa clean         - Clean OA build dir
+#   make oa               - Open Arena release   → build_oa/boot.dol
+#   make debug            - Q3A debug            → build/boot.dol
+#   make oa-debug         - OA debug             → build_oa/boot.dol
+#   make 240p             - Q3A 240p NTSC        → build/boot.dol
+#   make 240p-pal         - Q3A 264p PAL         → build/boot.dol
+#   make oa-240p          - OA 240p NTSC         → build_oa/boot.dol
+#   make oa-240p-pal      - OA 264p PAL          → build_oa/boot.dol
+#   make all-flavors          - Q3A + OA release
+#   make all-flavors-240p     - Q3A + OA 240p NTSC
+#   make all-flavors-240p-pal - Q3A + OA 264p PAL
+#   make clean            - Clean both build dirs
 #
 # Build from devkitPro MSYS2 shell only (sets DEVKITPRO / DEVKITPPC / PATH).
 ifeq ($(strip $(DEVKITPRO)),)
@@ -34,25 +33,25 @@ include $(DEVKITPPC)/wii_rules
 .DEFAULT_GOAL := all
 
 oa:
-	@$(MAKE) _OA=1
+	@$(MAKE) _OA=1 dol
 
 debug:
-	@$(MAKE) _DEBUG=1
+	@$(MAKE) _DEBUG=1 dol
 
 oa-debug:
-	@$(MAKE) _OA=1 _DEBUG=1
+	@$(MAKE) _OA=1 _DEBUG=1 dol
 
 240p:
-	@$(MAKE) _240P=1
+	@$(MAKE) _240P=1 dol
 
 240p-pal:
-	@$(MAKE) _240P=1 _PAL=1
+	@$(MAKE) _240P=1 _PAL=1 dol
 
 oa-240p:
-	@$(MAKE) _OA=1 _240P=1
+	@$(MAKE) _OA=1 _240P=1 dol
 
 oa-240p-pal:
-	@$(MAKE) _OA=1 _240P=1 _PAL=1
+	@$(MAKE) _OA=1 _240P=1 _PAL=1 dol
 
 all-flavors:
 	@$(MAKE) dol
@@ -408,6 +407,6 @@ ifneq ($(DOL_NOTE),)
 endif
 
 clean:
-	@rm -rf $(BUILD)
+	@rm -rf build build_oa
 	@rm -f $(ZLIB_H_COPY) $(ZCONF_H_COPY)
 	@echo "Cleaned."

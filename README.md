@@ -14,7 +14,7 @@ using devkitPPC + libogc and [OpenGX](https://github.com/devkitPro/opengx)
 - USB keyboard and mouse support
 - Bot support (AI opponents, works offline and on hosted servers)
 - Local server hosting
-- Optional Open Arena standalone build (`make oa dol`)
+- Optional Open Arena standalone build (`make oa`)
 - Optional 240p / 264p video output for CRTs and retro scalers
 
 ## Prerequisites (Windows)
@@ -54,21 +54,20 @@ From the devkitPro MSYS2 shell, in the repo root:
 
 ```bash
 make dol              # Quake 3           → build/boot.dol
-make oa dol           # Open Arena        → build_oa/boot.dol
-make debug dol        # Q3 debug build    → build/boot.dol
-make oa-debug dol     # OA debug build    → build_oa/boot.dol
+make oa               # Open Arena        → build_oa/boot.dol
+make debug            # Q3 debug build    → build/boot.dol
+make oa-debug         # OA debug build    → build_oa/boot.dol
 
-make 240p dol         # Q3  240p NTSC     → build/boot.dol
-make 240p-pal dol     # Q3  264p PAL      → build/boot.dol
-make oa-240p dol      # OA  240p NTSC     → build_oa/boot.dol
-make oa-240p-pal dol  # OA  264p PAL      → build_oa/boot.dol
+make 240p             # Q3  240p NTSC     → build/boot.dol
+make 240p-pal         # Q3  264p PAL      → build/boot.dol
+make oa-240p          # OA  240p NTSC     → build_oa/boot.dol
+make oa-240p-pal      # OA  264p PAL      → build_oa/boot.dol
 
-make all-flavors dol          # Q3 + OA release
-make all-flavors-240p dol     # Q3 + OA 240p NTSC
-make all-flavors-240p-pal dol # Q3 + OA 264p PAL
+make all-flavors          # Q3 + OA release
+make all-flavors-240p     # Q3 + OA 240p NTSC
+make all-flavors-240p-pal # Q3 + OA 264p PAL
 
-make clean       # Clean Q3 build dir (build/)
-make oa clean    # Clean OA build dir (build_oa/)
+make clean       # Clean both build dirs
 ```
 
 Debug builds enable SD card diagnostic logging to `sd:/quake3/`.
