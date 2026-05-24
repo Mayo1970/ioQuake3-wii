@@ -31,6 +31,8 @@ include $(DEVKITPPC)/wii_rules
 .PHONY: oa debug oa-debug 240p 240p-pal oa-240p oa-240p-pal \
         all-flavors all-flavors-240p all-flavors-240p-pal
 
+.DEFAULT_GOAL := all
+
 oa:
 	@$(MAKE) _OA=1
 
