@@ -59,7 +59,13 @@ qhandle_t R_RegisterMD3(const char *name, model_t *mod)
 		fext++;
 	}
 
+	/* On Wii, r_lodbias always selects LoD 0 and the hunk is small.
+	 * Skip loading _1.md3 / _2.md3 entirely to conserve hunk. */
+#ifdef GEKKO
+	for (lod = 0; lod >= 0; lod--)
+#else
 	for (lod = MD3_MAX_LODS - 1 ; lod >= 0 ; lod--)
+#endif
 	{
 		if(lod)
 			Com_sprintf(namebuf, sizeof(namebuf), "%s_%d.%s", filename, lod, fext);

@@ -888,7 +888,9 @@ static void SV_InitGameVM( qboolean restart ) {
 	
 	// use the current msec count for a random seed
 	// init for this gamestate
+	wii_diag("SV_InitGameVM: GAME_INIT restart=%d\n", (int)restart);
 	VM_Call (gvm, GAME_INIT, sv.time, Com_Milliseconds(), restart);
+	wii_diag("SV_InitGameVM: GAME_INIT done\n");
 }
 
 
@@ -937,10 +939,12 @@ void SV_InitGameProgs( void ) {
 	}
 
 	// load the dll or bytecode
+	wii_diag("SV_InitGameProgs: VM_Create qagame\n");
 	gvm = VM_Create( "qagame", SV_GameSystemCalls, Cvar_VariableValue( "vm_game" ) );
 	if ( !gvm ) {
 		Com_Error( ERR_FATAL, "VM_Create on game failed" );
 	}
+	wii_diag("SV_InitGameProgs: VM_Create done\n");
 
 	SV_InitGameVM( qfalse );
 }

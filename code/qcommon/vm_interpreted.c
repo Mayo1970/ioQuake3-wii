@@ -175,6 +175,8 @@ void VM_PrepareInterpreter( vm_t *vm, vmHeader_t *header ) {
 	int		instruction;
 	int		*codeBase;
 
+	wii_diag("VM_PrepareInterpreter: %s codeLen=%d instrCount=%d\n",
+		vm->name, vm->codeLength, header->instructionCount);
 	vm->codeBase = Hunk_Alloc( vm->codeLength*4, h_high );			// we're now int aligned
 //	memcpy( vm->codeBase, (byte *)header + header->codeOffset, vm->codeLength );
 
@@ -235,9 +237,10 @@ void VM_PrepareInterpreter( vm_t *vm, vmHeader_t *header ) {
 		}
 
 	}
+	wii_diag("VM_PrepareInterpreter: %s pass1 done int_pc=%d\n", vm->name, int_pc);
 	int_pc = 0;
 	instruction = 0;
-	
+
 	// Now that the code has been expanded to int-sized opcodes, we'll translate instruction index
 	//into an index into codeBase[], which contains opcodes and operands.
 	while ( instruction < header->instructionCount ) {
@@ -287,6 +290,7 @@ void VM_PrepareInterpreter( vm_t *vm, vmHeader_t *header ) {
 		}
 
 	}
+	wii_diag("VM_PrepareInterpreter: %s pass2 done (complete)\n", vm->name);
 }
 
 /*
@@ -373,6 +377,11 @@ int	VM_CallInterpreted( vm_t *vm, int *args ) {
 
 #define r2 codeImage[programCounter]
 
+#ifdef WII_DEBUG
+	unsigned int wii_instr_count = 0;
+	unsigned int wii_syscall_count = 0;
+#endif
+
 	while ( 1 ) {
 		int		opcode,	r0, r1;
 //		unsigned int	r2;
@@ -380,6 +389,11 @@ int	VM_CallInterpreted( vm_t *vm, int *args ) {
 nextInstruction:
 		r0 = opStack[opStackOfs];
 		r1 = opStack[(uint8_t) (opStackOfs - 1)];
+#ifdef WII_DEBUG
+		if ((++wii_instr_count & 0x3FFFFF) == 0)
+			wii_diag("VM_CallInterpreted: %s instr=%u syscalls=%u pc=%d\n",
+				vm->name, wii_instr_count, wii_syscall_count, programCounter);
+#endif
 nextInstruction2:
 #ifdef DEBUG_VM
 		if ( (unsigned)programCounter >= vm->codeLength ) {
@@ -491,6 +505,9 @@ nextInstruction2:
 #endif
 				// save the stack to allow recursive VM entry
 //				temp = vm->callLevel;
+#ifdef WII_DEBUG
+				++wii_syscall_count;
+#endif
 				vm->programStack = programStack - 4;
 #ifdef DEBUG_VM
 				stomped = *(int *)&image[ programStack + 4 ];

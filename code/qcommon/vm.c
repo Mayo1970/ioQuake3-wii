@@ -468,7 +468,7 @@ vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc, qboolean unpure)
 					"VM_Restart()\n", filename);
 			return NULL;
 		}
-		
+
 		Com_Memset(vm->dataBase, 0, vm->dataAlloc);
 	}
 
@@ -690,6 +690,8 @@ vm_t *VM_Create( const char *module, intptr_t (*systemCalls)(intptr_t *),
 	vm->stackBottom = vm->programStack - PROGRAM_STACK_SIZE;
 
 	Com_Printf("%s loaded in %d bytes on the hunk\n", module, remaining - Hunk_MemoryRemaining());
+	wii_diag("VM_Create: %s done, used=%d hunk_remaining=%d\n",
+		module, remaining - Hunk_MemoryRemaining(), Hunk_MemoryRemaining());
 
 	return vm;
 }

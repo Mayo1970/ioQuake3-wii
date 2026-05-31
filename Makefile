@@ -3,16 +3,20 @@
 # Convenience targets:
 #   make dol              - Q3A release          → build/boot.dol
 #   make oa               - Open Arena release   → build_oa/boot.dol
+#   make ta               - Team Arena release   → build_ta/boot.dol
 #   make debug            - Q3A debug            → build/boot.dol
 #   make oa-debug         - OA debug             → build_oa/boot.dol
+#   make ta-debug         - TA debug             → build_ta/boot.dol
 #   make 240p             - Q3A 240p NTSC        → build/boot.dol
 #   make 240p-pal         - Q3A 264p PAL         → build/boot.dol
 #   make oa-240p          - OA 240p NTSC         → build_oa/boot.dol
 #   make oa-240p-pal      - OA 264p PAL          → build_oa/boot.dol
-#   make all-flavors          - Q3A + OA release
-#   make all-flavors-240p     - Q3A + OA 240p NTSC
-#   make all-flavors-240p-pal - Q3A + OA 264p PAL
-#   make clean            - Clean both build dirs
+#   make ta-240p          - TA 240p NTSC         → build_ta/boot.dol
+#   make ta-240p-pal      - TA 264p PAL          → build_ta/boot.dol
+#   make all-flavors          - Q3A + OA + TA release
+#   make all-flavors-240p     - Q3A + OA + TA 240p NTSC
+#   make all-flavors-240p-pal - Q3A + OA + TA 264p PAL
+#   make clean            - Clean all build dirs
 #
 # Build from devkitPro MSYS2 shell only (sets DEVKITPRO / DEVKITPPC / PATH).
 ifeq ($(strip $(DEVKITPRO)),)
@@ -27,7 +31,7 @@ include $(DEVKITPPC)/wii_rules
 #---------------------------------------------------------------------------------
 # Convenience phony targets — recurse with the right internal flags
 #---------------------------------------------------------------------------------
-.PHONY: oa debug oa-debug 240p 240p-pal oa-240p oa-240p-pal \
+.PHONY: oa ta debug oa-debug ta-debug 240p 240p-pal oa-240p oa-240p-pal ta-240p ta-240p-pal \
         all-flavors all-flavors-240p all-flavors-240p-pal
 
 .DEFAULT_GOAL := all
@@ -35,11 +39,17 @@ include $(DEVKITPPC)/wii_rules
 oa:
 	@$(MAKE) _OA=1 dol
 
+ta:
+	@$(MAKE) _TA=1 dol
+
 debug:
 	@$(MAKE) _DEBUG=1 dol
 
 oa-debug:
 	@$(MAKE) _OA=1 _DEBUG=1 dol
+
+ta-debug:
+	@$(MAKE) _TA=1 _DEBUG=1 dol
 
 240p:
 	@$(MAKE) _240P=1 dol
@@ -53,27 +63,44 @@ oa-240p:
 oa-240p-pal:
 	@$(MAKE) _OA=1 _240P=1 _PAL=1 dol
 
+ta-240p:
+	@$(MAKE) _TA=1 _240P=1 dol
+
+ta-240p-pal:
+	@$(MAKE) _TA=1 _240P=1 _PAL=1 dol
+
 all-flavors:
 	@$(MAKE) dol
 	@$(MAKE) _OA=1 dol
+	@$(MAKE) _TA=1 dol
 
 all-flavors-240p:
 	@$(MAKE) _240P=1 dol
 	@$(MAKE) _OA=1 _240P=1 dol
+	@$(MAKE) _TA=1 _240P=1 dol
 
 all-flavors-240p-pal:
 	@$(MAKE) _240P=1 _PAL=1 dol
 	@$(MAKE) _OA=1 _240P=1 _PAL=1 dol
+	@$(MAKE) _TA=1 _240P=1 _PAL=1 dol
 
 #---------------------------------------------------------------------------------
 # Internal build configuration (set by the phony targets above)
 #---------------------------------------------------------------------------------
 _OA    ?= 0
+_TA    ?= 0
 _DEBUG ?= 0
 _240P  ?= 0
 _PAL   ?= 0
+# Optional: boot directly into a mod. e.g. make WII_FSGAME=missionpack dol
+WII_FSGAME ?=
 
-ifeq ($(_OA),1)
+ifeq ($(_TA),1)
+  BUILD          := build_ta
+  GAMEMODE_FLAGS := -DSTANDALONETA -DWII_BASEGAME=\"baseq3\"
+  DOL_DEST       := /apps/teamarena/boot.dol
+  DOL_NOTE       := TA data: sd:/quake3/baseq3/pak*.pk3 + sd:/quake3/missionpack/pak*.pk3
+else ifeq ($(_OA),1)
   BUILD          := build_oa
   GAMEMODE_FLAGS := -DSTANDALONEOA -DWII_BASEGAME=\"baseoa\"
   DOL_DEST       := /apps/openarena/boot.dol
@@ -99,6 +126,12 @@ ifeq ($(_240P),1)
   endif
 else
   WII_240P_FLAG :=
+endif
+
+ifneq ($(WII_FSGAME),)
+  WII_FSGAME_FLAG := -DWII_FSGAME=\"$(WII_FSGAME)\"
+else
+  WII_FSGAME_FLAG :=
 endif
 
 # Input backend
@@ -286,6 +319,7 @@ CFLAGS  = $(MACHDEP) \
           $(GAMEMODE_FLAGS) \
           $(WII_INPUT_FLAGS) \
           $(WII_240P_FLAG) \
+          $(WII_FSGAME_FLAG) \
           -msdata=none -G 0 \
           -DGEKKO -DWII \
           -DMAX_CLIENTS=8 \
@@ -407,6 +441,6 @@ ifneq ($(DOL_NOTE),)
 endif
 
 clean:
-	@rm -rf build build_oa
+	@rm -rf build build_oa build_ta
 	@rm -f $(ZLIB_H_COPY) $(ZCONF_H_COPY)
 	@echo "Cleaned."

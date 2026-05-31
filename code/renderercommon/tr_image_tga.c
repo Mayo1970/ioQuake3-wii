@@ -99,21 +99,125 @@ void R_LoadTGA ( const char *name, byte **pic, int *width, int *height)
 
 	buf_p += 18;
 
-	if (targa_header.image_type!=2 
+	// Type 1: color-mapped (paletted). Decode by expanding indices through the colormap.
+	if ( targa_header.image_type == 1 )
+	{
+		unsigned int i, idx;
+		unsigned char r, g, b, a;
+		byte colormap[256 * 4];
+		int cmapBytes;
+		unsigned int cmapLen;
+
+		if ( targa_header.colormap_type != 1 )
+		{
+			ri.Printf( PRINT_WARNING, "LoadTGA: '%s' type 1 image missing colormap\n", name );
+			ri.FS_FreeFile( buffer.v );
+			return;
+		}
+		if ( targa_header.pixel_size != 8 )
+		{
+			ri.Printf( PRINT_WARNING, "LoadTGA: '%s' type 1 image with non-8-bit index size %d not supported\n", name, targa_header.pixel_size );
+			ri.FS_FreeFile( buffer.v );
+			return;
+		}
+		if ( targa_header.colormap_size != 24 && targa_header.colormap_size != 32 )
+		{
+			ri.Printf( PRINT_WARNING, "LoadTGA: '%s' type 1 colormap entry size %d not supported (need 24 or 32)\n", name, targa_header.colormap_size );
+			ri.FS_FreeFile( buffer.v );
+			return;
+		}
+
+		if ( targa_header.id_length != 0 )
+		{
+			if ( buf_p + targa_header.id_length > end )
+			{
+				ri.Error( ERR_DROP, "LoadTGA: header too short (%s)", name );
+			}
+			buf_p += targa_header.id_length;
+		}
+
+		cmapBytes = targa_header.colormap_size / 8;
+		cmapLen   = targa_header.colormap_length;
+
+		if ( buf_p + (unsigned int)cmapLen * cmapBytes > end )
+		{
+			ri.Error( ERR_DROP, "LoadTGA: colormap truncated (%s)", name );
+		}
+
+		// Read colormap into local RGBA table (TGA stores BGR[A]).
+		// Only store up to 256 entries; always advance buf_p past the full colormap.
+		for ( i = 0; i < cmapLen; i++ )
+		{
+			b = *buf_p++;
+			g = *buf_p++;
+			r = *buf_p++;
+			a = ( cmapBytes == 4 ) ? *buf_p++ : 255;
+			if ( i < 256 )
+			{
+				colormap[i * 4 + 0] = r;
+				colormap[i * 4 + 1] = g;
+				colormap[i * 4 + 2] = b;
+				colormap[i * 4 + 3] = a;
+			}
+		}
+		if ( cmapLen > 256 ) cmapLen = 256;
+
+		columns   = targa_header.width;
+		rows      = targa_header.height;
+		numPixels = columns * rows * 4;
+
+		if ( !columns || !rows || numPixels > 0x7FFFFFFF || numPixels / columns / 4 != rows )
+		{
+			ri.Error( ERR_DROP, "LoadTGA: %s has an invalid image size", name );
+		}
+
+		if ( buf_p + columns * rows > end )
+		{
+			ri.Error( ERR_DROP, "LoadTGA: file truncated (%s)", name );
+		}
+
+		targa_rgba = ri.Malloc( numPixels );
+
+		for ( i = 0; i < rows; i++ )
+		{
+			pixbuf = targa_rgba + ( rows - 1 - i ) * columns * 4;
+			for ( idx = 0; idx < columns; idx++ )
+			{
+				unsigned char entry = *buf_p++;
+				if ( entry >= cmapLen ) entry = 0;
+				*pixbuf++ = colormap[entry * 4 + 0];
+				*pixbuf++ = colormap[entry * 4 + 1];
+				*pixbuf++ = colormap[entry * 4 + 2];
+				*pixbuf++ = colormap[entry * 4 + 3];
+			}
+		}
+
+		if ( width )  *width  = columns;
+		if ( height ) *height = rows;
+		*pic = targa_rgba;
+
+		ri.FS_FreeFile( buffer.v );
+		return;
+	}
+
+	if (targa_header.image_type!=2
 		&& targa_header.image_type!=10
-		&& targa_header.image_type != 3 ) 
+		&& targa_header.image_type != 3 )
 	{
-		ri.Error (ERR_DROP, "LoadTGA: Only type 2 (RGB), 3 (gray), and 10 (RGB) TGA images supported");
+		ri.Printf( PRINT_WARNING, "LoadTGA: '%s' Only type 2 (RGB), 3 (gray), and 10 (RGB) TGA images supported\n", name);
+		return;
 	}
 
-	if ( targa_header.colormap_type != 0 )
+	else if ( targa_header.colormap_type != 0 )
 	{
-		ri.Error( ERR_DROP, "LoadTGA: colormaps not supported" );
+		ri.Printf( PRINT_WARNING, "LoadTGA: '%s' colormaps not supported\n", name);
+		return;
 	}
 
-	if ( ( targa_header.pixel_size != 32 && targa_header.pixel_size != 24 ) && targa_header.image_type != 3 )
+	else if ( ( targa_header.pixel_size != 32 && targa_header.pixel_size != 24 ) && targa_header.image_type != 3 )
 	{
-		ri.Error (ERR_DROP, "LoadTGA: Only 32 or 24 bit images supported (no colormaps)");
+		ri.Printf( PRINT_WARNING, "LoadTGA: '%s' Only 32 or 24 bit images supported (no colormaps)\n", name);
+		return;
 	}
 
 	columns = targa_header.width;

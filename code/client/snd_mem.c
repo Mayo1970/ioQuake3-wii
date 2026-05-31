@@ -59,8 +59,11 @@ void	SND_free(sndBuffer *v) {
 
 sndBuffer*	SND_malloc(void) {
 	sndBuffer *v;
+	int attempts = 0;
 redo:
 	if (freelist == NULL) {
+		if (buffer == NULL || ++attempts > 4096)
+			return NULL;
 		S_FreeOldestSound();
 		goto redo;
 	}
@@ -84,6 +87,17 @@ void SND_setup(void) {
 	scs = (cv->integer*1536);
 
 	buffer = malloc(scs*sizeof(sndBuffer) );
+	if (!buffer) {
+		Com_Printf("SND_setup: malloc(%d) failed — sound disabled\n",
+		           (int)(scs * sizeof(sndBuffer)));
+		scs = 0;
+		freelist = NULL;
+		inUse = 0;
+		sfxScratchBuffer = NULL;
+		sfxScratchPointer = NULL;
+		Com_Printf("Sound memory manager started (no pool)\n");
+		return;
+	}
 	// allocate the stack based hunk allocator
 	sfxScratchBuffer = malloc(SND_CHUNK_SIZE * sizeof(short) * 4);	//Hunk_Alloc(SND_CHUNK_SIZE * sizeof(short) * 4);
 	sfxScratchPointer = NULL;
@@ -93,7 +107,7 @@ void SND_setup(void) {
 	q = p + scs;
 	while (--q > p)
 		*(sndBuffer **)q = q-1;
-	
+
 	*(sndBuffer **)q = NULL;
 	freelist = p + scs - 1;
 

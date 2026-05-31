@@ -1,8 +1,6 @@
 /* ioquake3-wii: Wii platform entry point */
 
-/* 512 KB main stack — ioQ3 has functions with 16 KB+ local buffers */
 static unsigned char s_mainStack[512 * 1024] __attribute__((aligned(8)));
-/* Must be in .sdata — common_crt0.S uses @sda21 relocation */
 void *__ppc_main_sp __attribute__((section(".sdata"))) = &s_mainStack[sizeof(s_mainStack)];
 
 #include <gccore.h>
@@ -61,7 +59,6 @@ static qboolean Wii_MountSD(void)
 
 extern u32 Wii_MEM2_Init(void);
 
-/* libogc calls __sys_power_cb without NULL check — must provide handlers */
 static void wii_power_cb(void)              { exit(0); }
 static void wii_reset_cb(u32 irq, void *ctx){ (void)irq; (void)ctx; exit(0); }
 
@@ -100,11 +97,15 @@ int main(int argc, char *argv[])
 #ifdef WII_DEBUG
     { FILE *f = fopen("sd:/quake3/boot.txt", "w"); if (f) fclose(f); }
     boot_mark("main() reached, SD mounted");
+    {
+        char _mem2msg[64];
+        snprintf(_mem2msg, sizeof(_mem2msg), "MEM2 bump: %u MB", (unsigned)mem2_bump_mb);
+        boot_mark(_mem2msg);
+    }
     { FILE *f = fopen("sd:/quake3/crash.txt", "w"); if (f) fclose(f); }
     CRASHLOG("main() started");
 #endif
 
-    /* Must be set up before WPAD_Init's Bluetooth thread calls malloc/free */
     extern void Wii_InitMallocLock(void);
     Wii_InitMallocLock();
 
@@ -112,7 +113,6 @@ int main(int argc, char *argv[])
     WII_DBG_PRINTF("[wii] Input OK\n");
     boot_mark("Input init done");
 
-    /* Wi-Fi connect — times out harmlessly if no AP configured */
     {
         int net_result = Wii_Net_Init();
         (void)net_result;
@@ -124,7 +124,6 @@ int main(int argc, char *argv[])
     WII_DBG_PRINTF("[wii] Audio OK\n");
     boot_mark("Audio init done");
 
-    /* Leave 1 MB headroom for bump allocator alignment/overhead */
     u32 hunk_mb = (mem2_bump_mb > 1) ? mem2_bump_mb - 1 : mem2_bump_mb;
 
     static char cmdline[1024];
@@ -135,14 +134,15 @@ int main(int argc, char *argv[])
         "+set fs_gogpath \"\" "
         "+set com_basegame " WII_BASEGAME " "
         "+set com_hunkMegs %u "
-        "+set com_zoneMegs 8 ",
+        "+set com_zoneMegs 8 "
+        ,
         (unsigned)hunk_mb);
     snprintf(cmdline + strlen(cmdline), sizeof(cmdline) - strlen(cmdline),
         "+set r_mode -1 "
         "+set r_picmip 2 "
         "+set r_dynamic 0 "
         "+set r_flares 0 "
-        "+set r_fastsky 1 "
+        "+set r_fastsky 0 "
         "+set r_lodbias 1 "
         "+set r_subdivisions 20 "
         "+set r_simpleMipMaps 1 "
@@ -151,13 +151,15 @@ int main(int argc, char *argv[])
         "+set com_maxfps 30 "
         "+set pmove_fixed 1 "
         "+set s_khz 22 "
+#if defined(STANDALONETA)
+        "+set com_soundMegs 2 "
+#else
         "+set com_soundMegs 4 "
+#endif
         "+set sv_pure 0 "
         "+set sv_maxclients 8 "
 
-#if defined(STANDALONEOA)
-        "+set com_standalone 1 "
-#else
+#if !defined(STANDALONEOA) && !defined(STANDALONETA)
         "+set com_standalone 0 "
 #endif
         "+set cl_allowDownload 1 "
@@ -166,15 +168,17 @@ int main(int argc, char *argv[])
         "+set fraglimit 0 "
         "+set timelimit 0 "
         "+set com_logfile 2 "
-        "+set vm_ui 1 "
-        "+set vm_cgame 1 "
-        "+set vm_game 1"
+        "+set vm_ui 1"
+#if defined(STANDALONETA)
+        " +set fs_game missionpack"
+#elif defined(WII_FSGAME)
+        " +set fs_game " WII_FSGAME
+#endif
     );
 
     SYS_SetPowerCallback(wii_power_cb);
     SYS_SetResetCallback(wii_reset_cb);
 
-    /* Create qkey (2048 bytes) if missing — needed for cl_guid */
     {
         FILE *kf = fopen("sd:/quake3/qkey", "rb");
         if (kf) {

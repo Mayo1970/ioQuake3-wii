@@ -1,7 +1,7 @@
-/* Wii Sys_* interface — replaces ioQ3's sys_unix.c / sys_win32.c */
+/* Wii Sys_* interface */
 
 #include <gccore.h>
-#include <ogc/lwp_watchdog.h>   /* ticks_to_millisecs, gettime */
+#include <ogc/lwp_watchdog.h>
 #include <wiiuse/wpad.h>
 #include <fat.h>
 #include <stdio.h>
@@ -46,9 +46,6 @@ int Sys_Milliseconds(void)
         s_base_set   = qtrue;
     }
 
-    /* Compute elapsed ms from a base captured on first call so the result
-     * always fits in a positive 32-bit int (avoids the (int) truncation that
-     * wraps absolute gettime() into a negative number on Wii). */
     int ms = (int)ticks_to_millisecs(gettime() - s_base_ticks);
 
     return ms;
@@ -183,12 +180,13 @@ void Sys_Error(const char *error, ...)
     va_start(ap, error);
     vsnprintf(msg, sizeof(msg), error, ap);
     va_end(ap);
+    wii_diag("Sys_Error: %s\n", msg);
     printf("\n\n\n");
     printf("=============================\n");
     printf("[FATAL ERROR]\n");
     printf("%s\n", msg);
     printf("=============================\n");
-    printf("Press START to reboot.\n");
+    printf("Press START to exit.\n");
     fflush(stdout);
     while (1) {
         PAD_ScanPads();
@@ -208,7 +206,6 @@ cpuFeatures_t Sys_GetProcessorFeatures(void)
     return (cpuFeatures_t)0;
 }
 
-/* GX + OpenGX already initialised in Wii_GX_Init() before Com_Init */
 void GLimp_Init(qboolean fixedFunction)
 {
     (void)fixedFunction;
@@ -292,11 +289,10 @@ void Sys_GLimpInit(void)     { }
 void Sys_GLimpSafeInit(void) { }
 
 void IN_Init(void *windowData) { (void)windowData; }
-void IN_Shutdown(void)         { }
+void IN_Shutdown(void)         { Wii_Input_Shutdown(); }
 void IN_Restart(void)          { }
 void IN_Frame(void)            { Wii_Input_Frame(); }
 
-/* snd_main.c is not compiled; delegate to S_Base_* in snd_dma.c */
 #include "client/snd_local.h"
 
 extern qboolean S_Base_Init(soundInterface_t *si);
@@ -329,6 +325,21 @@ static soundInterface_t s_snd_if;
 extern void boot_mark(const char *msg);
 extern void S_CodecInit(void);
 
+static void S_Wii_Play_f(void) {
+    int i, c;
+    sfxHandle_t h;
+    c = Cmd_Argc();
+    if (c < 2) {
+        Com_Printf("Usage: play <sound filename> [sound filename] ...\n");
+        return;
+    }
+    for (i = 1; i < c; i++) {
+        h = S_Base_RegisterSound(Cmd_Argv(i), qfalse);
+        if (h)
+            S_Base_StartLocalSound(h, CHAN_LOCAL_SOUND);
+    }
+}
+
 void S_Init(void)
 {
     boot_mark("S_Init enter");
@@ -336,6 +347,8 @@ void S_Init(void)
     s_muted       = Cvar_Get("s_muted",       "0",    CVAR_ROM);
     s_musicVolume = Cvar_Get("s_musicvolume", "0.25", CVAR_ARCHIVE);
     s_doppler     = Cvar_Get("s_doppler",     "1",    CVAR_ARCHIVE);
+
+    Cmd_AddCommand("play", S_Wii_Play_f);
 
     S_CodecInit();
     boot_mark("S_Init: codec registered");
@@ -351,6 +364,7 @@ void S_Shutdown(void)
         s_snd_if.Shutdown();
     Wii_Snd_Shutdown();
     Com_Memset(&s_snd_if, 0, sizeof(s_snd_if));
+    Cmd_RemoveCommand("play");
 }
 void        S_Update(void)                                             { S_Base_Update(); }
 void        S_BeginRegistration(void)                                  { S_Base_BeginRegistration(); }
@@ -378,7 +392,6 @@ void     CL_TakeVideoFrame(void)               { }
 void     CL_WriteAVIVideoFrame(const byte *d,int s) { (void)d;(void)s; }
 void     CL_WriteAVIAudioFrame(const byte *d,int s) { (void)d;(void)s; }
 
-/* getaddrinfo/freeaddrinfo — IPv4-only; libogc declares but doesn't implement */
 #include <arpa/inet.h>
 int getaddrinfo(const char *node, const char *service,
                 const struct addrinfo *hints, struct addrinfo **res)
@@ -498,11 +511,9 @@ int ioctl(int fd, int request, ...)
     return net_ioctl(fd, request, arg);
 }
 
-/* mmap/munmap route large allocs to MEM2 bump; smaller fall back to memalign */
 #include <malloc.h>
 void *wii_mem2_alloc(size_t size);
 
-/* Pointers >= mem2_base came from the bump allocator and must not be free()'d */
 static u8 *mem2_base = NULL;
 
 static inline int is_mem2_ptr(void *p)
@@ -531,28 +542,35 @@ unsigned int CON_LogWrite(const char *in) { (void)in; return 0; }
 unsigned int CON_LogSize(void)            { return 0; }
 unsigned int CON_LogRead(char *out, unsigned int outlen) { (void)out;(void)outlen; return 0; }
 
-/* MEM2 bump allocator: top 33 MB for hunk, rest for sbrk */
 static u8   *mem2_ptr  = NULL;
 static u32   mem2_left = 0;
 
-#define MEM2_BUMP_SIZE (33u * 1024u * 1024u)
+#if defined(STANDALONETA)
+#define MEM2_BUMP_MAX    (40u * 1024u * 1024u)
+#define SBRK_RESERVE     (18u * 1024u * 1024u)  /* zone(8)+sound(6,soundMegs=2)+overhead(4) */
+#else
+#define MEM2_BUMP_SIZE   (33u * 1024u * 1024u)
+#endif
 
-/* Returns actual reserved size in MB (may be < 33 on constrained IOS). */
 u32 Wii_MEM2_Init(void)
 {
     u8 *lo = (u8 *)SYS_GetArena2Lo();
     u8 *hi = (u8 *)SYS_GetArena2Hi();
     u32 total = (u32)(hi - lo);
+#if defined(STANDALONETA)
+    u32 bump  = (total > SBRK_RESERVE) ? total - SBRK_RESERVE : 0;
+    if (bump > MEM2_BUMP_MAX) bump = MEM2_BUMP_MAX;
+#else
     u32 bump  = (total >= MEM2_BUMP_SIZE) ? MEM2_BUMP_SIZE : total;
+#endif
 
     mem2_base = hi - bump;
     mem2_ptr  = mem2_base;
     mem2_left = bump;
 
-    /* Cap sbrk heap so it can't grow into the bump region */
     SYS_SetArena2Hi(mem2_base);
 
-    return bump >> 20;  /* MB */
+    return bump >> 20;
 }
 
 
@@ -568,8 +586,6 @@ void *wii_mem2_alloc(size_t size)
     return NULL;
 }
 
-/* 16 MB threshold so the 32 MB hunk goes to MEM2 bump; zone and smaller
- * allocs stay on sbrk heap. */
 extern void *__real_calloc(size_t nmemb, size_t size);
 
 void *__wrap_calloc(size_t nmemb, size_t size)
@@ -584,6 +600,7 @@ void *__wrap_calloc(size_t nmemb, size_t size)
     }
     return __real_calloc(nmemb, size);
 }
+
 
 void Wii_VM_Yield(void)
 {
@@ -601,8 +618,6 @@ void __wrap_CL_GenerateQKey(void)
 {
 }
 
-/* Callnum enums overlap across VMs (BOTAI_START_FRAME == UI_HASUNIQUECDKEY == 10);
- * must check vm == uivm before applying UI-specific intercepts. */
 #define WII_UI_SET_ACTIVE_MENU  7
 #define WII_UI_HASUNIQUECDKEY   10
 #define WII_UIMENU_MAIN         1

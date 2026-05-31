@@ -489,21 +489,28 @@ void SV_SpawnServer( char *server, qboolean killBots ) {
 	sv.state = SS_LOADING;
 
 	// load and spawn all other entities
+	wii_diag("SV_SpawnServer: SV_InitGameProgs\n");
 	SV_InitGameProgs();
+	wii_diag("SV_SpawnServer: SV_InitGameProgs done\n");
 
 	// don't allow a map_restart if game is modified
 	sv_gametype->modified = qfalse;
 
 	// run a few frames to allow everything to settle
+	wii_diag("SV_SpawnServer: settle frames\n");
 	for (i = 0;i < 3; i++)
 	{
+		wii_diag("SV_SpawnServer: GAME_RUN_FRAME %d\n", i);
 		VM_Call (gvm, GAME_RUN_FRAME, sv.time);
+		wii_diag("SV_SpawnServer: SV_BotFrame %d\n", i);
 		SV_BotFrame (sv.time);
 		sv.time += 100;
 		svs.time += 100;
 	}
+	wii_diag("SV_SpawnServer: settle frames done\n");
 
 	// create a baseline for more efficient communications
+	wii_diag("SV_SpawnServer: SV_CreateBaseline\n");
 	SV_CreateBaseline ();
 
 	for (i=0 ; i<sv_maxclients->integer ; i++) {

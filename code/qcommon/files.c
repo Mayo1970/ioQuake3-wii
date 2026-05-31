@@ -1472,7 +1472,6 @@ int FS_FindVM(void **startSearch, char *found, int foundlen, const char *name, i
 			if(FS_FOpenFileReadDir(qvmName, search, NULL, qfalse, qfalse) > 0)
 			{
 				*startSearch = search;
-
 				return VMI_COMPILED;
 			}
 		}

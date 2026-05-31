@@ -19,7 +19,6 @@
 #include "renderercommon/tr_public.h"
 #include "sys/wii_glimp.h"
 
-/* Sole definition; tr_main.c's copy is renamed to avoid collision. */
 refimport_t ri;
 
 static void QDECL wii_ri_Printf(int level, const char *fmt, ...)
@@ -49,7 +48,6 @@ static void *wii_ri_Hunk_Alloc(int size, ha_pref pref, char *label,
     return Hunk_AllocDebug(size, pref, label, file, line);
 }
 
-/* Z_Malloc may be a debug macro; cannot take its address directly. */
 static void *wii_ri_Malloc(int size)
 {
     return Z_Malloc(size);
@@ -85,8 +83,6 @@ static void wii_ri_init(void)
     ri.FS_FreeFileList           = FS_FreeFileList;
     ri.FS_WriteFile              = FS_WriteFile;
 }
-
-/* Pre-boot no-op stub: no qgl/GX calls; safe before OpenGX is ready. */
 
 static void s_Shutdown(qboolean d)  { (void)d; }
 

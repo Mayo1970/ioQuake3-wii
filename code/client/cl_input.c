@@ -26,6 +26,18 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 unsigned	frame_msec;
 int			old_com_frameTime;
 
+// Weapon cycle commands are registered by cgame via CG_ADDCOMMAND, but cgame may
+// not be loaded during map transitions.  Without engine-side registration the NULL-
+// function path in Cmd_ExecuteString falls through to CL_ForwardCommandToServer,
+// which sends "weapprev"/"weapnext" to the server — the stock q3 QVM doesn't know
+// those commands and prints "unknown cmd weapprev" each time.
+// Registering them here with a real function routes through CL_GameCommand() so
+// that (a) cgame handles them when loaded, (b) they are silently dropped when cgame
+// is not yet / no longer active.
+static void CL_WeaponCycleCommand_f(void) {
+	CL_GameCommand();
+}
+
 /*
 ===============================================================================
 
@@ -559,10 +571,11 @@ CL_FinishMove
 /* Fine-aim IR offset from wii_input.c — normalized [-1, 1].
    Added here so the shot goes where the IR dot physically points,
    independent of the slow body-turn applied via SE_MOUSE. */
-#define WII_IR_YAW_RANGE   50.0f
-#define WII_IR_PITCH_RANGE 30.0f
 extern float wii_ir_aim_x;
 extern float wii_ir_aim_y;
+/* Range cvars declared in wii_input.c; fallback values used if not yet init. */
+extern cvar_t *ir_yawRange;
+extern cvar_t *ir_pitchRange;
 #endif
 
 void CL_FinishMove( usercmd_t *cmd ) {
@@ -577,8 +590,10 @@ void CL_FinishMove( usercmd_t *cmd ) {
 
 #if defined(GEKKO) && WPAD_ENABLED
 	{
-		float yaw   = cl.viewangles[YAW]   - wii_ir_aim_x * WII_IR_YAW_RANGE;
-		float pitch = cl.viewangles[PITCH] + wii_ir_aim_y * WII_IR_PITCH_RANGE;
+		float yawR   = ir_yawRange   ? ir_yawRange->value   : 50.0f;
+		float pitchR = ir_pitchRange ? ir_pitchRange->value : 30.0f;
+		float yaw   = cl.viewangles[YAW]   - wii_ir_aim_x * yawR;
+		float pitch = cl.viewangles[PITCH] + wii_ir_aim_y * pitchR;
 		cmd->angles[YAW]   = ANGLE2SHORT(yaw);
 		cmd->angles[PITCH] = ANGLE2SHORT(pitch);
 		cmd->angles[ROLL]  = ANGLE2SHORT(cl.viewangles[ROLL]);
@@ -1014,6 +1029,9 @@ void CL_InitInput( void ) {
 	Cmd_AddCommand ("+mlook", IN_MLookDown);
 	Cmd_AddCommand ("-mlook", IN_MLookUp);
 
+	Cmd_AddCommand ("weapnext", CL_WeaponCycleCommand_f);
+	Cmd_AddCommand ("weapprev", CL_WeaponCycleCommand_f);
+
 #ifdef USE_VOIP
 	Cmd_AddCommand ("+voiprecord", IN_VoipRecordDown);
 	Cmd_AddCommand ("-voiprecord", IN_VoipRecordUp);
@@ -1090,6 +1108,9 @@ void CL_ShutdownInput(void)
 	Cmd_RemoveCommand("-button14");
 	Cmd_RemoveCommand("+mlook");
 	Cmd_RemoveCommand("-mlook");
+
+	Cmd_RemoveCommand("weapnext");
+	Cmd_RemoveCommand("weapprev");
 
 #ifdef USE_VOIP
 	Cmd_RemoveCommand("+voiprecord");

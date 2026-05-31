@@ -38,6 +38,19 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
   #define CINEMATICS_INTRO		"intro.roq"
   #define LEGACY_PROTOCOL
   #define CONFIG_PREFIX			"oaconfig"
+#elif defined(STANDALONETA)
+  #define STANDALONE
+  #define PRODUCT_NAME				"Team Arena"
+  #define BASEGAME					"baseq3"
+  #define CLIENT_WINDOW_TITLE		"Quake III: Team Arena"
+  #define CLIENT_WINDOW_MIN_TITLE	"teamarena"
+  #define HOMEPATH_NAME_UNIX_LEGACY	".q3a"
+  #define HOMEPATH_NAME				"Quake3"
+  #define GAMENAME_FOR_MASTER		"Quake3Arena"
+  #define CINEMATICS_LOGO		"idlogo.RoQ"
+  #define CINEMATICS_INTRO		"intro.RoQ"
+  #define LEGACY_PROTOCOL
+  #define CONFIG_PREFIX			"q3config"
 #elif defined(STANDALONE)
   #define PRODUCT_NAME				"iofoo3"
   #define BASEGAME					"foobar"

@@ -401,10 +401,44 @@ static void SetViewportAndScissor( void ) {
 	qglMatrixMode(GL_MODELVIEW);
 
 	// set the window clipping
-	qglViewport( backEnd.viewParms.viewportX, backEnd.viewParms.viewportY, 
+#ifdef GEKKO
+	/* viewportY is in Q3/refdef top-down coords (Y=0 at top).
+	 * OpenGX's update_viewport passes Y straight to GX_SetViewport (also
+	 * top-down) with no flip, so pass it directly.
+	 *
+	 * For the scissor, OpenGX's update_scissor (scissor enabled) computes:
+	 *   GX_scissor_y = viewport_h - (scissor_h + scissor_y)
+	 * using viewport[3] as the reference.  We want GX_scissor_y = sy
+	 * (the clamped visible top-down Y), so back-solve:
+	 *   scissor_y = vh - sh - sy
+	 *
+	 * Clamp visible region to screen bounds to handle overhanging viewports
+	 * (e.g. player-model preview rect y=-40 h=560). */
+	{
+		int vx  = backEnd.viewParms.viewportX;
+		int vy  = backEnd.viewParms.viewportY;  /* top-down */
+		int vw  = backEnd.viewParms.viewportWidth;
+		int vh  = backEnd.viewParms.viewportHeight;
+
+		int sx  = vx < 0 ? 0 : vx;
+		int sy  = vy < 0 ? 0 : vy;
+		int sx2 = vx + vw > glConfig.vidWidth  ? glConfig.vidWidth  : vx + vw;
+		int sy2 = vy + vh > glConfig.vidHeight ? glConfig.vidHeight : vy + vh;
+		int sw  = sx2 - sx;  if ( sw < 0 ) sw = 0;
+		int sh  = sy2 - sy;  if ( sh < 0 ) sh = 0;
+
+		qglViewport( vx, vy, vw, vh );
+
+		/* back-solve: GX_y = vh-(sh+scissor_y) => scissor_y = vh-sh-sy */
+		int scissor_y = vh - sh - sy;
+		qglScissor( sx, scissor_y, sw, sh );
+	}
+#else
+	qglViewport( backEnd.viewParms.viewportX, backEnd.viewParms.viewportY,
 		backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
-	qglScissor( backEnd.viewParms.viewportX, backEnd.viewParms.viewportY, 
+	qglScissor( backEnd.viewParms.viewportX, backEnd.viewParms.viewportY,
 		backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
+#endif
 }
 
 /*

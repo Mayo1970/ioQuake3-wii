@@ -1027,8 +1027,10 @@ intptr_t CL_UISystemCalls( intptr_t *args ) {
 		return FloatAsInt( ceil( VMF(1) ) );
 
 	case UI_PC_ADD_GLOBAL_DEFINE:
+		wii_diag("UI_PC_ADD_GLOBAL_DEFINE: %s\n", (const char*)VMA(1));
 		return botlib_export->PC_AddGlobalDefine( VMA(1) );
 	case UI_PC_LOAD_SOURCE:
+		wii_diag("UI_PC_LOAD_SOURCE: %s\n", (const char*)VMA(1));
 		return botlib_export->PC_LoadSourceHandle( VMA(1) );
 	case UI_PC_FREE_SOURCE:
 		return botlib_export->PC_FreeSourceHandle( args[1] );
@@ -1049,7 +1051,11 @@ intptr_t CL_UISystemCalls( intptr_t *args ) {
 
 	case UI_CIN_PLAYCINEMATIC:
 	  Com_DPrintf("UI_CIN_PlayCinematic\n");
+#if defined(STANDALONETA)
+	  return -1; /* disable menu cinematics on Wii — too memory-heavy */
+#else
 	  return CIN_PlayCinematic(VMA(1), args[2], args[3], args[4], args[5], args[6]);
+#endif
 
 	case UI_CIN_STOPCINEMATIC:
 	  return CIN_StopCinematic(args[1]);
@@ -1116,17 +1122,22 @@ void CL_InitUI( void ) {
 			interpret = VMI_COMPILED;
 	}
 
+	wii_diag("CL_InitUI: VM_Create ui interpret=%d\n", (int)interpret);
 	uivm = VM_Create( "ui", CL_UISystemCalls, interpret );
 	if ( !uivm ) {
 		Com_Error( ERR_FATAL, "VM_Create on UI failed" );
 	}
+	wii_diag("CL_InitUI: VM_Create done, calling UI_GETAPIVERSION\n");
 
 	// sanity check
 	v = VM_Call( uivm, UI_GETAPIVERSION );
+	wii_diag("CL_InitUI: UI_GETAPIVERSION returned %d\n", v);
 	if (v == UI_OLD_API_VERSION) {
 //		Com_Printf(S_COLOR_YELLOW "WARNING: loading old Quake III Arena User Interface version %d\n", v );
 		// init for this gamestate
+		wii_diag("CL_InitUI: calling UI_INIT (old api)\n");
 		VM_Call( uivm, UI_INIT, (clc.state >= CA_AUTHORIZING && clc.state < CA_ACTIVE));
+		wii_diag("CL_InitUI: UI_INIT done (old api)\n");
 	}
 	else if (v != UI_API_VERSION) {
 		// Free uivm now, so UI_SHUTDOWN doesn't get called later.
@@ -1138,8 +1149,12 @@ void CL_InitUI( void ) {
 	}
 	else {
 		// init for this gamestate
+		wii_diag("CL_InitUI: calling UI_INIT connected=%d\n",
+			(int)(clc.state >= CA_AUTHORIZING && clc.state < CA_ACTIVE));
 		VM_Call( uivm, UI_INIT, (clc.state >= CA_AUTHORIZING && clc.state < CA_ACTIVE) );
+		wii_diag("CL_InitUI: UI_INIT done\n");
 	}
+	wii_diag("CL_InitUI: complete\n");
 }
 
 #ifndef STANDALONE

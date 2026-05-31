@@ -657,7 +657,11 @@ intptr_t CL_CgameSystemCalls( intptr_t *args ) {
 		return 0;
 
 	case CG_CIN_PLAYCINEMATIC:
+#if defined(STANDALONETA)
+	  return -1; /* disable in-game cinematics on Wii — decoder buffers exhaust the hunk */
+#else
 	  return CIN_PlayCinematic(VMA(1), args[2], args[3], args[4], args[5], args[6]);
+#endif
 
 	case CG_CIN_STOPCINEMATIC:
 	  return CIN_StopCinematic(args[1]);

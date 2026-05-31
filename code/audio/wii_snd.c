@@ -16,13 +16,11 @@
 #define SND_SAMPLES     2048    /* ~93 ms at 22 kHz; submission_chunk = half */
 #define SND_BYTES       (SND_SAMPLES * SND_CHANNELS * (SND_SAMPLEBITS / 8))
 
-/* Output rate ASND uses internally (set by ASND_Init → AUDIO_SetDSPSampleRate) */
 #define ASND_OUTPUT_RATE 48000
 
 static qboolean s_snd_init   = qfalse;
 static qboolean s_asnd_ready = qfalse;
 
-/* ioQ3 mixer writes here as a ring; ASND reads it via infinite loop. */
 static u8 *s_buf = NULL;
 
 void Wii_Snd_Init(void)
@@ -60,16 +58,11 @@ qboolean SNDDMA_Init(void)
     dma.isfloat          = 0;
     dma.speed            = SND_FREQ;
     dma.channels         = SND_CHANNELS;
-    dma.samples          = SND_SAMPLES * SND_CHANNELS; /* total interleaved */
-    dma.fullsamples      = SND_SAMPLES;                /* sample-pairs      */
-    dma.submission_chunk = SND_SAMPLES / 2;            /* 1024 pairs        */
+    dma.samples          = SND_SAMPLES * SND_CHANNELS;
+    dma.fullsamples      = SND_SAMPLES;
+    dma.submission_chunk = SND_SAMPLES / 2;
     dma.buffer           = s_buf;
 
-    /*
-     * Use infinite voice: ASND loops s_buf forever at SND_FREQ input rate.
-     * No callback needed — Q3 mixer writes into the ring, SNDDMA_Submit
-     * flushes the DCache, and ASND's DMA sees the freshly-written samples.
-     */
     ASND_SetInfiniteVoice(SND_VOICE,
                           VOICE_STEREO_16BIT,
                           SND_FREQ,
@@ -81,8 +74,6 @@ qboolean SNDDMA_Init(void)
     return qtrue;
 }
 
-/* ASND tick counter runs at ASND_OUTPUT_RATE; convert to source-rate frames
- * and return interleaved count so S_GetSoundtime's /dma.channels works. */
 int SNDDMA_GetDMAPos(void)
 {
     if (!s_snd_init)
@@ -97,7 +88,6 @@ int SNDDMA_GetDMAPos(void)
 
 void SNDDMA_BeginPainting(void)
 {
-    /* no-op: dma.buffer never changes */
 }
 
 /* Writeback dcache so ASND DMA sees freshly mixed samples. */

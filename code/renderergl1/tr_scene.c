@@ -382,30 +382,18 @@ void RE_RenderScene( const refdef_t *fd ) {
 	//
 	Com_Memset( &parms, 0, sizeof( parms ) );
 
-#ifdef GEKKO
-	// UI menu scripts can specify rects that extend beyond the 480-tall
-	// framebuffer (e.g. player preview rect y=-40 h=560).  Clamp to screen
-	// bounds so the GL→GX viewport flip doesn't produce negative coordinates.
-	{
-		int rx = tr.refdef.x;
-		int ry = tr.refdef.y;
-		int rw = tr.refdef.width;
-		int rh = tr.refdef.height;
-		if ( ry < 0 )                         { rh += ry; ry = 0; }
-		if ( ry + rh > glConfig.vidHeight )   { rh = glConfig.vidHeight - ry; }
-		if ( rx < 0 )                         { rw += rx; rx = 0; }
-		if ( rx + rw > glConfig.vidWidth )    { rw = glConfig.vidWidth  - rx; }
-		parms.viewportX      = rx;
-		parms.viewportY      = glConfig.vidHeight - ( ry + rh );
-		parms.viewportWidth  = rw;
-		parms.viewportHeight = rh;
-	}
-#else
 	parms.viewportX = tr.refdef.x;
+#ifdef GEKKO
+	/* OpenGX passes glViewport Y directly to GX_SetViewport (top-down, Y=0 at
+	 * top) without any flip.  Q3's refdef uses the same top-down convention, so
+	 * store it as-is.  SetViewportAndScissor converts to GX coords and
+	 * back-solves the scissor. */
+	parms.viewportY = tr.refdef.y;
+#else
 	parms.viewportY = glConfig.vidHeight - ( tr.refdef.y + tr.refdef.height );
+#endif
 	parms.viewportWidth = tr.refdef.width;
 	parms.viewportHeight = tr.refdef.height;
-#endif
 	parms.isPortal = qfalse;
 
 	parms.fovX = tr.refdef.fov_x;
