@@ -1,4 +1,3 @@
-/* ASND-based audio backend declarations. */
 #pragma once
 #include "qcommon/q_shared.h"
 

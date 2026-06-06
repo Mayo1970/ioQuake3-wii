@@ -384,10 +384,6 @@ void RE_RenderScene( const refdef_t *fd ) {
 
 	parms.viewportX = tr.refdef.x;
 #ifdef GEKKO
-	/* OpenGX passes glViewport Y directly to GX_SetViewport (top-down, Y=0 at
-	 * top) without any flip.  Q3's refdef uses the same top-down convention, so
-	 * store it as-is.  SetViewportAndScissor converts to GX coords and
-	 * back-solves the scissor. */
 	parms.viewportY = tr.refdef.y;
 #else
 	parms.viewportY = glConfig.vidHeight - ( tr.refdef.y + tr.refdef.height );

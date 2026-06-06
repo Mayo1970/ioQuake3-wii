@@ -410,6 +410,15 @@ void CL_JoystickMove( usercmd_t *cmd ) {
 	float pitch   = j_pitch->value   * cl.joystickAxis[j_pitch_axis->integer];
 	float up      = j_up->value      * cl.joystickAxis[j_up_axis->integer];
 
+#if defined(GEKKO)
+	{
+		float s = cl_sensitivity->value;
+		float inv = (m_pitch->value >= 0.0f) ? 1.0f : -1.0f;
+		yaw   *= s;
+		pitch *= s * inv;
+	}
+#endif
+
 	if ( !(in_speed.active ^ cl_run->integer) ) {
 		cmd->buttons |= BUTTON_WALKING;
 	}
@@ -568,12 +577,8 @@ CL_FinishMove
 */
 
 #if defined(GEKKO) && WPAD_ENABLED
-/* Fine-aim IR offset from wii_input.c — normalized [-1, 1].
-   Added here so the shot goes where the IR dot physically points,
-   independent of the slow body-turn applied via SE_MOUSE. */
 extern float wii_ir_aim_x;
 extern float wii_ir_aim_y;
-/* Range cvars declared in wii_input.c; fallback values used if not yet init. */
 extern cvar_t *ir_yawRange;
 extern cvar_t *ir_pitchRange;
 #endif
@@ -592,8 +597,9 @@ void CL_FinishMove( usercmd_t *cmd ) {
 	{
 		float yawR   = ir_yawRange   ? ir_yawRange->value   : 50.0f;
 		float pitchR = ir_pitchRange ? ir_pitchRange->value : 30.0f;
+		float inv = (m_pitch->value >= 0.0f) ? 1.0f : -1.0f;
 		float yaw   = cl.viewangles[YAW]   - wii_ir_aim_x * yawR;
-		float pitch = cl.viewangles[PITCH] + wii_ir_aim_y * pitchR;
+		float pitch = cl.viewangles[PITCH] + wii_ir_aim_y * pitchR * inv;
 		cmd->angles[YAW]   = ANGLE2SHORT(yaw);
 		cmd->angles[PITCH] = ANGLE2SHORT(pitch);
 		cmd->angles[ROLL]  = ANGLE2SHORT(cl.viewangles[ROLL]);

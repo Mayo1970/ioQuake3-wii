@@ -11,6 +11,7 @@
 #include <wiikeyboard/keyboard.h>
 #if WPAD_ENABLED
 #include <wiiuse/wpad.h>
+#include <wiidrc/wiidrc.h>   /* Wii U GamePad (DRC) — vWii only */
 #endif
 #include <string.h>
 #include <stdio.h>
@@ -27,7 +28,7 @@ extern char *Key_KeynumToString(int keynum);
 
 #define STICK_DEADZONE       20
 #define CSTICK_DEADZONE      50
-#define MENU_SENSITIVITY_F   3.0f
+#define MENU_SENSITIVITY_F   6.0f   /* 2x: input is now polled once/frame (was 2x; see wii_main.c) */
 #define TRIGGER_THRESHOLD    100
 
 #define AXIS_SIDE     0
@@ -61,7 +62,6 @@ static const btn_map_t s_gc_menu_buttons[] = {
     { PAD_BUTTON_B,      K_ESCAPE     },
     { PAD_BUTTON_X,      K_MOUSE1     },
     { PAD_BUTTON_Y,      K_CONSOLE    },
-    { PAD_BUTTON_START,  K_ESCAPE     },
     { PAD_BUTTON_UP,     K_UPARROW    },
     { PAD_BUTTON_DOWN,   K_DOWNARROW  },
     { PAD_BUTTON_LEFT,   K_LEFTARROW  },
@@ -119,7 +119,6 @@ static const btn_map_t s_cc_buttons[] = {
 static const btn_map_t s_cc_menu_buttons[] = {
     { WPAD_CLASSIC_BUTTON_A,       K_ENTER      },
     { WPAD_CLASSIC_BUTTON_B,       K_ESCAPE     },
-    { WPAD_CLASSIC_BUTTON_PLUS,    K_ESCAPE     },
     { WPAD_CLASSIC_BUTTON_ZR,      K_MOUSE1     },
     { WPAD_CLASSIC_BUTTON_UP,      K_UPARROW    },
     { WPAD_CLASSIC_BUTTON_DOWN,    K_DOWNARROW  },
@@ -130,6 +129,46 @@ static const btn_map_t s_cc_menu_buttons[] = {
 
 #define CC_STICK_DEADZONE   0.15f   /* magnitude below which stick is ignored */
 #define CC_STICK_SCALE      32767.0f
+
+/* --- Wii U GamePad (DRC) --------------------------------------------------
+   Layout mirrors the Classic Controller (dual stick + ZL/ZR/L/R + ABXY +
+   dpad + +/-) so K_JOY assignments, default binds and the cl_keys.c label
+   table stay consistent across the two two-stick controllers. */
+static const btn_map_t s_drc_buttons[] = {
+    { WIIDRC_BUTTON_ZR,     K_JOY1  },
+    { WIIDRC_BUTTON_A,      K_JOY2  },
+    { WIIDRC_BUTTON_B,      K_JOY3  },
+    { WIIDRC_BUTTON_ZL,     K_JOY4  },
+    { WIIDRC_BUTTON_X,      K_JOY5  },
+    { WIIDRC_BUTTON_Y,      K_JOY6  },
+    { WIIDRC_BUTTON_L,      K_JOY7  },
+    { WIIDRC_BUTTON_R,      K_JOY8  },
+    { WIIDRC_BUTTON_PLUS,   K_JOY9  },
+    { WIIDRC_BUTTON_MINUS,  K_JOY10 },
+    { WIIDRC_BUTTON_UP,     K_JOY11 },
+    { WIIDRC_BUTTON_DOWN,   K_JOY12 },
+    { WIIDRC_BUTTON_LEFT,   K_JOY13 },
+    { WIIDRC_BUTTON_RIGHT,  K_JOY14 },
+};
+#define DRC_BTN_COUNT (sizeof(s_drc_buttons) / sizeof(s_drc_buttons[0]))
+
+static const btn_map_t s_drc_menu_buttons[] = {
+    { WIIDRC_BUTTON_A,      K_ENTER      },
+    { WIIDRC_BUTTON_B,      K_ESCAPE     },
+    { WIIDRC_BUTTON_PLUS,   K_ESCAPE     },
+    { WIIDRC_BUTTON_ZR,     K_MOUSE1     },
+    { WIIDRC_BUTTON_UP,     K_UPARROW    },
+    { WIIDRC_BUTTON_DOWN,   K_DOWNARROW  },
+    { WIIDRC_BUTTON_LEFT,   K_LEFTARROW  },
+    { WIIDRC_BUTTON_RIGHT,  K_RIGHTARROW },
+};
+#define DRC_MENU_BTN_COUNT (sizeof(s_drc_menu_buttons) / sizeof(s_drc_menu_buttons[0]))
+
+/* DRC stick axes are small signed values (~ -128..+127, centred near 0 after
+   the library's calibration). Normalise against this half-range. */
+#define DRC_STICK_RANGE     128.0f
+#define DRC_STICK_DEADZONE  0.15f   /* fraction of full range */
+#define DRC_STICK_SCALE     32767.0f
 
 #define IR_CENTER_X       320.0f
 #define IR_CENTER_Y       240.0f
@@ -156,6 +195,7 @@ float wii_ir_aim_y = 0.0f;
 #define CTRL_TYPE_GC       1
 #define CTRL_TYPE_WIIMOTE  2
 #define CTRL_TYPE_CLASSIC  3
+#define CTRL_TYPE_DRC      4   /* Wii U GamePad (tablet), vWii only */
 
 static input_state_t  s_input;
 static qboolean       s_home_pressed   = qfalse;
@@ -250,6 +290,7 @@ static const char *CtrlTypeCfgName(int type)
     case CTRL_TYPE_GC:      return "wii_binds_gc.cfg";
     case CTRL_TYPE_WIIMOTE: return "wii_binds_wm.cfg";
     case CTRL_TYPE_CLASSIC: return "wii_binds_cc.cfg";
+    case CTRL_TYPE_DRC:     return "wii_binds_drc.cfg";
     default:                return NULL;
     }
 }
@@ -332,16 +373,20 @@ static void SetGCBindings(void)
 
     ApplyBind(K_JOY1,      "+moveup",     force); /* A = jump */
     ApplyBind(K_JOY2,      "+movedown",   force); /* B = crouch */
-    ApplyBind(K_JOY3,      "weapprev",    force); /* X */
-    ApplyBind(K_JOY4,      "weapnext",    force); /* Y */
-    ApplyBind(K_JOY5,      "+zoom",       force); /* Z */
+    ApplyBind(K_JOY3,      "weapnext",    force); /* X */
+    ApplyBind(K_JOY4,      "weapprev",    force); /* Y */
+    ApplyBind(K_JOY5,      "+button2",    force); /* Z = use item */
     ApplyBind(K_JOY6,      "togglemenu",  force); /* Start */
     ApplyBind(K_JOY7,      "+scores",     force); /* D-up */
-    ApplyBind(K_JOY8,      "+attack",     force); /* D-down */
-    ApplyBind(K_JOY9,      "weapprev",    force); /* D-left */
-    ApplyBind(K_JOY10,     "weapnext",    force); /* D-right */
-    ApplyBind(K_JOY_LTRIG, "+speed",      force); /* L = walk */
+    /* K_JOY8 = D-Down: unbound */
+    ApplyBind(K_JOY9,      "+moveleft",   force); /* D-left = strafe left */
+    ApplyBind(K_JOY10,     "+moveright",  force); /* D-right = strafe right */
+    ApplyBind(K_JOY_LTRIG, "+zoom",       force); /* L = zoom */
     ApplyBind(K_JOY_RTRIG, "+attack",     force); /* R = fire */
+    /* Clear default.cfg's MOUSE1 -> +attack so the controls screen shows
+       the JOY key name instead of "MOUSE1". Menu navigation uses InjectKey
+       directly and doesn't need this binding. */
+    Key_SetBinding(K_MOUSE1, "");
 }
 
 #if WPAD_ENABLED
@@ -358,11 +403,12 @@ static void SetWiimoteBindings(void)
     ApplyBind(K_JOY4,  "+movedown",  force); /* Nunchuk C = crouch */
     ApplyBind(K_JOY5,  "togglemenu", force); /* + = menu */
     ApplyBind(K_JOY6,  "+scores",    force); /* - = scores */
-    ApplyBind(K_JOY7,  "weapnext",   force); /* D-up */
-    ApplyBind(K_JOY8,  "weapprev",   force); /* D-down */
+    /* K_JOY7 = D-Up: unbound */
+    /* K_JOY8 = D-Down: unbound */
     ApplyBind(K_JOY9,  "weapprev",   force); /* D-left */
     ApplyBind(K_JOY10, "weapnext",   force); /* D-right */
     ApplyBind(K_JOY11, "+speed",     force); /* 1 = walk */
+    Key_SetBinding(K_MOUSE1, "");
 }
 #endif
 
@@ -378,6 +424,32 @@ static void SetClassicBindings(void)
     ApplyBind(K_JOY2,  "+moveup",    force); /* A = jump */
     ApplyBind(K_JOY3,  "+movedown",  force); /* B = crouch */
     ApplyBind(K_JOY4,  "+zoom",      force); /* ZL = zoom */
+    ApplyBind(K_JOY5,  "weapnext",   force); /* X */
+    ApplyBind(K_JOY6,  "weapprev",   force); /* Y */
+    ApplyBind(K_JOY7,  "+speed",     force); /* L = walk */
+    ApplyBind(K_JOY8,  "+button2",   force); /* R = use item */
+    ApplyBind(K_JOY9,  "togglemenu", force); /* + */
+    ApplyBind(K_JOY10, "+scores",    force); /* - */
+    ApplyBind(K_JOY11, "+forward",   force); /* D-up */
+    ApplyBind(K_JOY12, "+back",      force); /* D-down */
+    ApplyBind(K_JOY13, "+moveleft",  force); /* D-left */
+    ApplyBind(K_JOY14, "+moveright", force); /* D-right */
+    Key_SetBinding(K_MOUSE1, "");
+}
+#endif
+
+#if WPAD_ENABLED
+static void SetDRCBindings(void)
+{
+    if (s_active_ctrl_type == CTRL_TYPE_DRC)
+        return;
+
+    qboolean force = SetActiveControllerType(CTRL_TYPE_DRC);
+
+    ApplyBind(K_JOY1,  "+attack",    force); /* ZR = fire */
+    ApplyBind(K_JOY2,  "+moveup",    force); /* A = jump */
+    ApplyBind(K_JOY3,  "+movedown",  force); /* B = crouch */
+    ApplyBind(K_JOY4,  "+zoom",      force); /* ZL = zoom */
     ApplyBind(K_JOY5,  "weapprev",   force); /* X */
     ApplyBind(K_JOY6,  "weapnext",   force); /* Y */
     ApplyBind(K_JOY7,  "+speed",     force); /* L = walk */
@@ -388,6 +460,7 @@ static void SetClassicBindings(void)
     ApplyBind(K_JOY12, "weapprev",   force); /* D-down */
     ApplyBind(K_JOY13, "weapprev",   force); /* D-left */
     ApplyBind(K_JOY14, "weapnext",   force); /* D-right */
+    Key_SetBinding(K_MOUSE1, "");
 }
 #endif
 
@@ -651,6 +724,87 @@ static void CC_Input_Frame(WPADData *data, qboolean in_game)
     }
 }
 
+/* Normalise a raw DRC axis (~ -128..+127) to [-1, 1] with a fractional
+   deadzone. Returns 0 inside the deadzone. */
+static float DRC_NormAxis(s16 raw)
+{
+    float v = (float)raw / DRC_STICK_RANGE;
+    if (v >  1.0f) v =  1.0f;
+    if (v < -1.0f) v = -1.0f;
+    if (v > -DRC_STICK_DEADZONE && v < DRC_STICK_DEADZONE)
+        return 0.0f;
+    return v;
+}
+
+static void DRC_Input_Frame(const struct WiiDRCData *drc, qboolean in_game)
+{
+    int i;
+
+    SetDRCBindings();
+
+    /* HOME on the GamePad, or its POWER overlay / shutdown request, triggers
+       the same clean quit-to-HBC path the Wiimote HOME button uses. */
+    if ((drc->button & WIIDRC_BUTTON_HOME) || WiiDRC_ShutdownRequested())
+        s_home_pressed = qtrue;
+
+    if (!in_game) {
+        for (i = 0; i < (int)DRC_MENU_BTN_COUNT; i++)
+            InjectKey(s_drc_menu_buttons[i].q3key,
+                      (drc->button & s_drc_menu_buttons[i].bit) ? qtrue : qfalse);
+
+        /* Left stick drives the menu cursor. */
+        float lx = DRC_NormAxis(drc->xAxisL);
+        float ly = DRC_NormAxis(drc->yAxisL);
+        if (lx != 0.0f || ly != 0.0f) {
+            s_accum_x += lx * MENU_SENSITIVITY_F;
+            s_accum_y += -ly * MENU_SENSITIVITY_F; /* stick-up = cursor-up */
+            int ox = (int)s_accum_x;
+            int oy = (int)s_accum_y;
+            s_accum_x -= (float)ox;
+            s_accum_y -= (float)oy;
+            if (ox != 0 || oy != 0)
+                Com_QueueEvent(0, SE_MOUSE, ox, oy, 0, NULL);
+        } else {
+            s_accum_x = s_accum_y = 0.0f;
+        }
+        return;
+    }
+
+    for (i = 0; i < (int)DRC_BTN_COUNT; i++)
+        InjectKey(s_drc_buttons[i].q3key,
+                  (drc->button & s_drc_buttons[i].bit) ? qtrue : qfalse);
+
+    /* Left stick -> strafe / forward */
+    float lx = DRC_NormAxis(drc->xAxisL);
+    float ly = DRC_NormAxis(drc->yAxisL);
+    short side = (short)(lx * DRC_STICK_SCALE);
+    /* DRC yAxisL is +up; negate so the engine's j_forward=-0.25 flip yields
+       forward on stick-up (matches the menu cursor, which also uses -ly). */
+    short fwd  = (short)(-ly * DRC_STICK_SCALE);
+    if (side != s_old_axis[0]) {
+        Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_SIDE, side, 0, NULL);
+        s_old_axis[0] = side;
+    }
+    if (fwd != s_old_axis[1]) {
+        Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_FORWARD, fwd, 0, NULL);
+        s_old_axis[1] = fwd;
+    }
+
+    /* Right stick -> yaw / pitch */
+    float rx = DRC_NormAxis(drc->xAxisR);
+    float ry = DRC_NormAxis(drc->yAxisR);
+    short yaw   = (short)(rx * DRC_STICK_SCALE);
+    short pitch = (short)(-ry * DRC_STICK_SCALE); /* stick-up = look up */
+    if (yaw != s_old_axis[2] || yaw == 0) {
+        Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_YAW, yaw, 0, NULL);
+        s_old_axis[2] = yaw;
+    }
+    if (pitch != s_old_axis[3] || pitch == 0) {
+        Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_PITCH, pitch, 0, NULL);
+        s_old_axis[3] = pitch;
+    }
+}
+
 static void WM_Input_Frame(void)
 {
     int i;
@@ -704,7 +858,8 @@ static void WM_Input_Frame(void)
                      data->exp.nunchuk.btns);
         }
         if (has_classic) {
-            wii_diag("[wpad] classic lmag=%.2f lang=%.1f rmag=%.2f rang=%.1f btns=0x%08x\n",
+            wii_diag("[wpad] classic type=%d lmag=%.2f lang=%.1f rmag=%.2f rang=%.1f btns=0x%08x\n",
+                     (int)data->exp.classic.type,
                      data->exp.classic.ljs.mag, data->exp.classic.ljs.ang,
                      data->exp.classic.rjs.mag, data->exp.classic.rjs.ang,
                      data->btns_h);
@@ -874,7 +1029,10 @@ static void USB_Keyboard_Frame(void)
         if (evt.type == KEYBOARD_PRESSED || evt.type == KEYBOARD_RELEASED) {
             qboolean down = (evt.type == KEYBOARD_PRESSED) ? qtrue : qfalse;
 
-            if (down && (evt.symbol == KS_grave || evt.symbol == KS_asciitilde)) {
+            /* Grave/tilde is the standard console key, but it doesn't exist on
+             * every layout (e.g. Italian keyboards), so F1 is also a toggle. */
+            if (down && (evt.symbol == KS_grave || evt.symbol == KS_asciitilde ||
+                         evt.symbol == KS_f1 || evt.symbol == KS_F1)) {
                 Com_QueueEvent(0, SE_KEY, K_CONSOLE, qtrue, 0, NULL);
                 Com_QueueEvent(0, SE_KEY, K_CONSOLE, qfalse, 0, NULL);
                 continue;
@@ -969,6 +1127,13 @@ void Wii_Input_Init(void)
     WPAD_SetVRes(WPAD_CHAN_0, 640, 480);
     WPAD_SetIdleTimeout(300); /* 5 minutes before auto-disconnect */
 
+    /* Wii U GamePad. Safe no-op on a real Wii: Init returns false when the
+       DRC I2C signature isn't present (non-vWii or unpatched fw). */
+    WiiDRC_Init();
+#ifdef WII_DEBUG
+    printf("[input] WiiDRC_Init -> inited=%d\n", (int)WiiDRC_Inited());
+#endif
+
 #ifdef WII_DEBUG
     printf("[input] Wiimote+Nunchuk initialised (IR aiming)\n");
 #endif
@@ -1016,21 +1181,41 @@ void Wii_Input_SetCvars(void)
      * engine-registered default of "0"). */
     Cvar_Get("j_side",    "0.25",   CVAR_ARCHIVE);
     Cvar_Get("j_forward", "-0.25",  CVAR_ARCHIVE);
-    Cvar_Get("j_pitch",   "0.015",  CVAR_ARCHIVE);
-    Cvar_Get("j_yaw",     "-0.015", CVAR_ARCHIVE);
+    /* j_pitch / j_yaw: fixed base scale — cl_sensitivity (the in-menu slider) is
+       multiplied on top in cl_input.c.  Force these with Cvar_Set so stale values
+       from an old q3config.cfg (which had no cl_sensitivity scaling) don't produce
+       unexpectedly high speeds after this change. */
+    Cvar_Set("j_pitch",   "0.002");
+    Cvar_Set("j_yaw",     "-0.002");
 
 #if WPAD_ENABLED
-    /* Wiimote IR aiming — CVAR_ARCHIVE so players can tune and persist them */
+    /* Wiimote IR aiming — CVAR_ARCHIVE so players can tune and persist them.
+     * sensitivity/maxdelta doubled (0.15->0.30, 25->50) to preserve the prior
+     * body-turn feel now that input is polled once per frame instead of twice
+     * (see wii_main.c). A pre-existing q3config.cfg value overrides these. */
     ir_deadzone    = Cvar_Get("wii_ir_deadzone",    "40",   CVAR_ARCHIVE);
-    ir_sensitivity = Cvar_Get("wii_ir_sensitivity", "0.15", CVAR_ARCHIVE);
-    ir_maxDelta    = Cvar_Get("wii_ir_maxdelta",    "25",   CVAR_ARCHIVE);
+    ir_sensitivity = Cvar_Get("wii_ir_sensitivity", "0.30", CVAR_ARCHIVE);
+    ir_maxDelta    = Cvar_Get("wii_ir_maxdelta",    "50",   CVAR_ARCHIVE);
     ir_yawRange    = Cvar_Get("wii_ir_yawrange",    "50",   CVAR_ARCHIVE);
     ir_pitchRange  = Cvar_Get("wii_ir_pitchrange",  "30",   CVAR_ARCHIVE);
 #endif
 
+    /* 1 = VMI_BYTECODE (interpreter); 2 = VMI_COMPILED (native PPC JIT).
+     * Built with WII_VM_NATIVE=1 to run QVMs as native PPC. The JIT only
+     * actually engages because that flag also defines HAVE_VM_COMPILED in
+     * wii_platform.h (without it, vm.c forces the interpreter regardless).
+     * These run AFTER Com_Init, so they affect cgame/qagame (loaded later);
+     * vm_ui is additionally set in the wii_main.c cmdline because CL_InitUI
+     * runs during Com_Init. */
+#if defined(WII_VM_NATIVE)
+    Cvar_Set("vm_ui",    "2");
+    Cvar_Set("vm_cgame", "2");
+    Cvar_Set("vm_game",  "2");
+#else
     Cvar_Set("vm_ui",    "1");
     Cvar_Set("vm_cgame", "1");
     Cvar_Set("vm_game",  "1");
+#endif
 
     /* Stock default is 200s — far too long on Wii where the user has no
      * console feedback. 15s matches typical Q3 LAN/WAN connect expectations. */
@@ -1058,9 +1243,39 @@ void Wii_Input_SetCvars(void)
     }
 }
 
+int Wii_Input_GetCtrlType(void)
+{
+    return s_active_ctrl_type;
+}
+
 void Wii_Input_Frame(void)
 {
 #if WPAD_ENABLED
+    /* Wii U GamePad (DRC) takes priority when present (vWii + tablet on).
+       WiiDRC_Inited() is false on a real Wii / unpatched fw, so this whole
+       block is skipped and the standard Wiimote/GC arbitration runs. */
+    if (WiiDRC_Inited() && WiiDRC_Connected()) {
+        WiiDRC_ScanPads();
+        const struct WiiDRCData *drc = WiiDRC_Data();
+        if (drc) {
+            s_home_pressed = qfalse;
+
+            qboolean in_game = (Key_GetCatcher() == 0) ? qtrue : qfalse;
+            if (in_game != s_in_game) {
+                ReleaseAllKeys();
+                s_in_game = in_game;
+            }
+
+            DRC_Input_Frame(drc, in_game);
+
+            if (s_kb_inited)
+                USB_Keyboard_Frame();
+            if (s_mouse_inited)
+                USB_Mouse_Frame();
+            return;
+        }
+    }
+
     WM_Input_Frame();
 #else
     s_home_pressed = qfalse;

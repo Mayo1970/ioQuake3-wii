@@ -1342,7 +1342,14 @@ long FS_FOpenFileRead(const char *filename, fileHandle_t *file, qboolean uniqueF
 	for(search = fs_searchpaths; search; search = search->next)
 	{
 		// autoexec.cfg and q3config.cfg can only be loaded outside of pk3 files.
+		// A .pk3dir is an extracted archive (a peer to a .pk3) and must be
+		// treated like one here, otherwise a downloaded malicious pk3dir could
+		// inject a config that runs arbitrary commands on connect. A legitimate
+		// game directory (baseq3, missionpack, ...) never ends in ".pk3dir".
 		if (isLocalConfig && search->pack)
+			continue;
+		if (isLocalConfig && search->dir &&
+			FS_IsExt(search->dir->gamedir, ".pk3dir", strlen(search->dir->gamedir)))
 			continue;
 
 		len = FS_FOpenFileReadDir(filename, search, file, uniqueFILE, qfalse);

@@ -864,8 +864,12 @@ Returns a string (either a single ascii char, a K_* name, or a 0x11 hex string) 
 given keynum.
 ===================
 */
+#if defined(GEKKO)
+static int wii_keynumstr_raw = 0;
+#endif
+
 char *Key_KeynumToString( int keynum ) {
-	keyname_t	*kn;	
+	keyname_t	*kn;
 	static	char	tinystr[5];
 	int			i, j;
 
@@ -876,6 +880,52 @@ char *Key_KeynumToString( int keynum ) {
 	if ( keynum < 0 || keynum >= MAX_KEYS ) {
 		return "<OUT OF RANGE>";
 	}
+
+#if defined(GEKKO)
+	// Return controller-specific button names for JOY keys on Wii.
+	// Skipped when wii_keynumstr_raw is set (Key_WriteBindings) so cfg files
+	// always store canonical "JOYn" names that Key_StringToKeynum can parse back.
+	if (!wii_keynumstr_raw)
+	{
+		extern int Wii_Input_GetCtrlType(void);
+		// Must match the button maps in wii_input.c exactly.
+		// Index 0 = K_JOY1, index 1 = K_JOY2, etc.  NULL = not mapped on this controller.
+		static const char *s_gc_names[] = {
+			"A", "B", "X", "Y", "Z", "Start",
+			"D-Up", "D-Down", "D-Left", "D-Right",
+			"L", "R",
+		};
+		static const char *s_wm_names[] = {
+			"B", "A", "Z", "C", "+", "-",
+			"D-Up", "D-Down", "D-Left", "D-Right",
+			"1",
+		};
+		static const char *s_cc_names[] = {
+			"ZR", "A", "B", "ZL", "X", "Y",
+			"L", "R", "+", "-",
+			"D-Up", "D-Down", "D-Left", "D-Right",
+		};
+		/* Wii U GamePad (DRC) — same physical layout as the Classic Controller. */
+		static const char *s_drc_names[] = {
+			"ZR", "A", "B", "ZL", "X", "Y",
+			"L", "R", "+", "-",
+			"D-Up", "D-Down", "D-Left", "D-Right",
+		};
+		int idx = keynum - K_JOY1;
+		if (idx >= 0) {
+			int ctrl = Wii_Input_GetCtrlType();
+			const char **names = NULL;
+			int count = 0;
+			if (ctrl == 1) { names = s_gc_names; count = 12; }      /* CTRL_TYPE_GC */
+			else if (ctrl == 2) { names = s_wm_names; count = 11; } /* CTRL_TYPE_WIIMOTE */
+			else if (ctrl == 3) { names = s_cc_names; count = 14; } /* CTRL_TYPE_CLASSIC */
+			else if (ctrl == 4) { names = s_drc_names; count = 14; } /* CTRL_TYPE_DRC */
+			if (names && idx < count)
+				return (char *)names[idx];
+		}
+	}
+#endif
+
 
 	// check for printable ascii (don't use quote)
 	if ( keynum > 32 && keynum < 127 && keynum != '"' && keynum != ';' ) {
@@ -1058,13 +1108,17 @@ void Key_WriteBindings( fileHandle_t f ) {
 
 	FS_Printf (f, "unbindall\n" );
 
+#if defined(GEKKO)
+	wii_keynumstr_raw = 1;
+#endif
 	for (i=0 ; i<MAX_KEYS ; i++) {
 		if (keys[i].binding && keys[i].binding[0] ) {
 			FS_Printf (f, "bind %s \"%s\"\n", Key_KeynumToString(i), keys[i].binding);
-
 		}
-
 	}
+#if defined(GEKKO)
+	wii_keynumstr_raw = 0;
+#endif
 }
 
 

@@ -1,4 +1,3 @@
-/* Wii controller input declarations. */
 #pragma once
 #include "qcommon/q_shared.h"
 

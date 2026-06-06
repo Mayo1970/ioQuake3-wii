@@ -3167,7 +3167,20 @@ void Com_Frame( void ) {
 				minMsec = 1000 / com_maxfps->integer;
 			else
 				minMsec = 1;
-			
+
+#if defined(GEKKO) && !defined(DEDICATED)
+			// Wii: menus render cheaply (no world geometry, so the OpenGX->GX
+			// backend isn't the bottleneck there), so run them at 60 FPS for a
+			// smoother feel while live gameplay stays at the stable com_maxfps
+			// (30). Only raise the cap, never lower it below the in-game value.
+			if(CL_InMenu())
+			{
+				int menuMsec = 1000 / 60;
+				if(menuMsec < minMsec)
+					minMsec = menuMsec;
+			}
+#endif
+
 			timeVal = com_frameTime - lastTime;
 			bias += timeVal - minMsec;
 			

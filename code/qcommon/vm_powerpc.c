@@ -21,9 +21,14 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
 
+/* GEKKO (Wii) added: devkitPPC does not predefine __powerpc__/__ppc__ etc.,
+ * so without GEKKO this whole file compiles to an empty object and VM_Compile /
+ * VM_CallCompiled go undefined — breaking the link when HAVE_VM_COMPILED is set
+ * (WII_VM_NATIVE builds). The Wii is a 32-bit PPC 750 (Broadway); the non-ELF64
+ * code paths below are correct for it. */
 #if defined(powerc) || defined(powerpc) || defined(__powerpc__) || \
 	defined(ppc) || defined(__ppc) || defined(__ppc__) || \
-	defined(__powerpc64__) || defined(__ppc64__)
+	defined(__powerpc64__) || defined(__ppc64__) || defined(GEKKO)
 
 #include <sys/types.h> /* needed by sys/mman.h on OSX */
 #include <sys/mman.h>

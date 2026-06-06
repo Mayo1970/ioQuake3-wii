@@ -25,6 +25,26 @@
 #ifndef ARCH_STRING
 #  define ARCH_STRING "ppc"
 #endif
+
+/* In-game framerate cap injected into the boot cmdline (wii_main.c). The
+ * Makefile passes -DWII_MAXFPS_STR via the WII_MAXFPS flag (default "30");
+ * this fallback keeps the source compilable if built outside the Makefile.
+ * 30 is stable on real Wii; 60 is for Wii U / vWii (faster CPU). Menus/loading
+ * always run at 60 regardless (see CL_InMenu in common.c). */
+#ifndef WII_MAXFPS_STR
+#  define WII_MAXFPS_STR "30"
+#endif
+
+/* q_platform.h never defines HAVE_VM_COMPILED for the Wii (no GEKKO arch arm;
+ * the __linux__ fallback that would is disabled because GEKKO is defined). So
+ * the PPC JIT (code/qcommon/vm_powerpc.c) is normally compiled OUT and vm.c
+ * forces VMI_BYTECODE regardless of the vm_* cvars (it prints "Architecture
+ * doesn't have a bytecode compiler, using interpreter"). Define it here (gated
+ * on the WII_VM_NATIVE build flag) to compile the JIT path in for experimental
+ * native-PPC QVM builds. Default builds leave it undefined → interpreter. */
+#if defined(WII_VM_NATIVE) && !defined(HAVE_VM_COMPILED)
+#  define HAVE_VM_COMPILED
+#endif
 #ifndef PATH_SEP
 #  define PATH_SEP '/'
 #endif
@@ -140,15 +160,25 @@ static inline int mprotect(void *addr, size_t len, int prot) {
 #ifdef WII_DEBUG
 static inline void wii_diag(const char *fmt, ...) __attribute__((format(printf,1,2)));
 static inline void wii_diag(const char *fmt, ...) {
-    FILE *f = fopen("sd:/quake3/diag.txt", "a");
-    if (f) {
-        va_list ap;
-        va_start(ap, fmt);
-        vfprintf(f, fmt, ap);
-        va_end(ap);
-        fflush(f);
-        fclose(f);
+    /* Keep one persistent handle open across calls. The previous version
+     * re-opened the file (fopen) and closed it (fclose) on every call; that
+     * directory-traversal + metadata I/O is a heavy blocking SD/FAT operation,
+     * and when wii_diag fires mid-frame from the renderer it stalls the GX FIFO
+     * and corrupts the displayed frame. Opening once removes that stall. We
+     * still fflush every line so diag.txt stays complete up to a crash/freeze
+     * (its whole purpose) — fflush on an already-open handle is far cheaper
+     * than the open+close it replaces, and the renderer's wii_diag calls are
+     * count-capped so the volume is bounded. */
+    static FILE *f = NULL;
+    if (!f) {
+        f = fopen("sd:/quake3/diag.txt", "a");
+        if (!f) return;
     }
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+    fflush(f);
 }
 #else
 static inline void wii_diag(const char *fmt, ...) { (void)fmt; }

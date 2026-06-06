@@ -1,5 +1,3 @@
-/* qgl* function-pointer definitions and platform GL stubs. */
-
 #include <gccore.h>
 #include <string.h>
 #include "tr_local.h"

@@ -94,6 +94,14 @@ _240P  ?= 0
 _PAL   ?= 0
 # Optional: boot directly into a mod. e.g. make WII_FSGAME=missionpack dol
 WII_FSGAME ?=
+# Optional: run QVMs as native PPC via the JIT instead of the bytecode
+# interpreter. e.g. make WII_VM_NATIVE=1 debug. Default 0 (interpreter).
+# Defines HAVE_VM_COMPILED in wii_platform.h AND sets vm_*=2.
+WII_VM_NATIVE ?= 0
+# Optional: in-game framerate cap. Default 30 (stable on real Wii). Set 60 for
+# Wii U / vWii where the faster CPU may sustain it. e.g. make WII_MAXFPS=60 dol.
+# (Menus/loading always run at 60 regardless — see CL_InMenu in common.c.)
+WII_MAXFPS ?= 30
 
 ifeq ($(_TA),1)
   BUILD          := build_ta
@@ -134,6 +142,15 @@ else
   WII_FSGAME_FLAG :=
 endif
 
+ifeq ($(WII_VM_NATIVE),1)
+  WII_VM_NATIVE_FLAG := -DWII_VM_NATIVE=1
+else
+  WII_VM_NATIVE_FLAG :=
+endif
+
+# In-game framerate cap, stringized for the boot cmdline. Always defined.
+WII_MAXFPS_FLAG := -DWII_MAXFPS_STR=\"$(WII_MAXFPS)\"
+
 # Input backend
 INPUT_BACKEND ?= wiimote
 ifeq ($(INPUT_BACKEND),wiimote)
@@ -156,6 +173,11 @@ INCLUDES      := code
 # OpenGX — prebuilt library + headers vendored under libs/opengx.
 OPENGX_INC  := libs/opengx/include
 OPENGX_LIB  := libs/opengx/lib
+
+# libwiidrc — Wii U GamePad (DRC) support, vendored under libs/wiidrc.
+# Only linked in the Wiimote backend (DRC is vWii-only; shares the WPAD build).
+WIIDRC_INC  := libs/wiidrc/include
+WIIDRC_LIB  := libs/wiidrc/lib
 
 # ioQuake3 sources are vendored under code/ — see legacy/apply_patches.sh for
 # the historical patch set if you need to regenerate the vendored tree from
@@ -320,6 +342,8 @@ CFLAGS  = $(MACHDEP) \
           $(WII_INPUT_FLAGS) \
           $(WII_240P_FLAG) \
           $(WII_FSGAME_FLAG) \
+          $(WII_VM_NATIVE_FLAG) \
+          $(WII_MAXFPS_FLAG) \
           -msdata=none -G 0 \
           -DGEKKO -DWII \
           -DMAX_CLIENTS=8 \
@@ -337,7 +361,8 @@ CFLAGS  = $(MACHDEP) \
           -Icode/renderergl1 \
           -Icode/botlib \
           -I$(LIBOGC_INC) \
-          -DOPENGX_AVAILABLE -I$(OPENGX_INC)
+          -DOPENGX_AVAILABLE -I$(OPENGX_INC) \
+          -I$(WIIDRC_INC)
 
 CXXFLAGS = $(CFLAGS)
 
@@ -346,7 +371,7 @@ LDFLAGS = $(MACHDEP) -Wl,-Map,$(BUILD)/boot.elf.map -Wl,--wrap,CL_GenerateQKey -
 ifeq ($(INPUT_BACKEND),gamecube)
   LIBS  = -L$(LIBOGC_LIB) -L$(OPENGX_LIB) -lopengx -Wl,--start-group -lasnd -logc -ldi -lfat -lm -Wl,--end-group $(ZLIB_LIBS) -L$(JPEG_LIBDIR) -ljpeg
 else
-  LIBS  = -L$(LIBOGC_LIB) -L$(OPENGX_LIB) -lopengx -lwiiuse -lbte -lwiikeyboard -Wl,--start-group -lasnd -logc -ldi -lfat -lm -Wl,--end-group $(ZLIB_LIBS) -L$(JPEG_LIBDIR) -ljpeg
+  LIBS  = -L$(LIBOGC_LIB) -L$(OPENGX_LIB) -L$(WIIDRC_LIB) -lopengx -lwiidrc -lwiiuse -lbte -lwiikeyboard -Wl,--start-group -lasnd -logc -ldi -lfat -lm -Wl,--end-group $(ZLIB_LIBS) -L$(JPEG_LIBDIR) -ljpeg
 endif
 
 # Source collection

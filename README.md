@@ -9,11 +9,14 @@ using devkitPPC + libogc and [OpenGX](https://github.com/devkitPro/opengx)
 - Boots, connects to servers, loads maps, enters gameplay
 - Networking works (Wi-Fi, LAN discovery, internet server browser, content downloads)
 - Background music and cinematic playback
-- Wii Pro/Classic and GameCube controller support
 - Wiimote + Nunchuk with IR aim
+- Wii Classic / Pro Controller support
+- Wii U GamePad support
+- GameCube controller support
 - USB keyboard and mouse support
 - Bot support (AI opponents, works offline and on hosted servers)
 - Local server hosting
+- Per-controller button binding persistence across reboots
 - Optional Open Arena standalone build (`make oa`)
 - Optional 240p / 264p video output for CRTs and retro scalers
 
@@ -39,7 +42,7 @@ using devkitPPC + libogc and [OpenGX](https://github.com/devkitPro/opengx)
    echo %DEVKITPPC%    → C:/devkitPro/devkitPPC
    ```
 
-### 2. Install MSYS2 or use the devkitPro shell
+### 2. Use the devkitPro MSYS2 shell
 
 The devkitPro installer ships MSYS2. Use the **MSYS2 devkitPro shell**
 (Start menu → devkitPro → MSYS2) for all build commands. It sets
@@ -53,24 +56,33 @@ or MSYS does not, and the build will error out.
 From the devkitPro MSYS2 shell, in the repo root:
 
 ```bash
-make dol              # Quake 3           → build/boot.dol
-make oa               # Open Arena        → build_oa/boot.dol
-make debug            # Q3 debug build    → build/boot.dol
-make oa-debug         # OA debug build    → build_oa/boot.dol
+# Standard 480i builds
+make dol              # Quake 3 Arena      → build/boot.dol
+make oa               # Open Arena         → build_oa/boot.dol
 
-make 240p             # Q3  240p NTSC     → build/boot.dol
-make 240p-pal         # Q3  264p PAL      → build/boot.dol
-make oa-240p          # OA  240p NTSC     → build_oa/boot.dol
-make oa-240p-pal      # OA  264p PAL      → build_oa/boot.dol
+# Debug builds (enable SD card diagnostic logging)
+make debug            # Q3A debug          → build/boot.dol
+make oa-debug         # OA  debug          → build_oa/boot.dol
 
-make all-flavors          # Q3 + OA release
-make all-flavors-240p     # Q3 + OA 240p NTSC
-make all-flavors-240p-pal # Q3 + OA 264p PAL
+# 240p NTSC builds (CRT / retro scaler only — rejects on flat panels)
+make 240p             # Q3A 240p NTSC      → build/boot.dol
+make oa-240p          # OA  240p NTSC      → build_oa/boot.dol
 
-make clean       # Clean both build dirs
+# 264p PAL builds
+make 240p-pal         # Q3A 264p PAL       → build/boot.dol
+make oa-240p-pal      # OA  264p PAL       → build_oa/boot.dol
+
+make clean       # Clean all build dirs
 ```
 
-Debug builds enable SD card diagnostic logging to `sd:/quake3/`.
+### Optional build flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `WII_MAXFPS=60` | `30` | In-game framerate cap. Use 60 on Wii U / vWii. Menus always run at 60 regardless. |
+| `WII_VM_NATIVE=1` | `0` | Enable the native-PPC JIT for QVMs. No measurable FPS gain (render-bound), kept for future investigation. |
+
+Example: `make WII_MAXFPS=60 dol`
 
 ### 240p / 264p mode
 
@@ -96,22 +108,23 @@ SD:/
 │   ├── ioquake3/
 │   │   ├── boot.dol      ← build/boot.dol
 │   │   └── meta.xml
-│   └── openarena/        ← OA build only
+│   └── openarena/
 │       ├── boot.dol      ← build_oa/boot.dol
 │       └── meta.xml
 └── quake3/
-    ├── baseq3/           ← Q3 data
+    ├── baseq3/           ← Q3A data
     │   ├── pak0.pk3      ← from your Quake III Arena disc / purchase
     │   ├── pak1.pk3
     │   ├── ...
     │   └── pak8.pk3
-    └── baseoa/           ← OA data
+    └── baseoa/           ← OA data only (baseq3/ not required)
         ├── pak0.pk3      ← from your Open Arena install
         └── ...
 ```
 
-**You need the original Quake III Arena data files** (`pak0.pk3` through
-`pak8.pk3`). The demo pk3 files will also work for testing.
+**Data requirements:**
+- **Q3A**: `sd:/quake3/baseq3/pak*.pk3`
+- **Open Arena**: `sd:/quake3/baseoa/pak*.pk3` (no `baseq3/` needed)
 
 ---
 
@@ -120,6 +133,9 @@ SD:/
 All input methods are active simultaneously. Use whichever controller you
 prefer, or combine them (e.g. GC controller for movement + USB mouse for
 aiming). USB devices must be connected at boot (no hot-plug).
+
+Input priority when multiple controllers are connected:
+**Wii U GamePad → Classic Controller → Wiimote+Nunchuk → GameCube**
 
 ### GameCube controller
 
@@ -130,15 +146,14 @@ aiming). USB devices must be connected at boot (no hot-plug).
 | Left stick | Move |
 | C-stick | Look  |
 | **R** trigger | Fire |
-| **L** trigger | Walk |
+| **L** trigger | Zoom |
 | **A** | Jump |
 | **B** | Crouch |
-| **X** | Previous weapon |
-| **Y** | Next weapon |
-| **Z** | Zoom |
+| **X** | Next weapon |
+| **Y** | Previous weapon |
+| **Z** | Use item |
 | D-pad up | Scoreboard |
-| D-pad down | Fire (alt) |
-| D-pad left/right | Prev/next weapon |
+| D-pad left/right | Strafe |
 | **Start** | Menu (Escape) |
 
 #### Menus
@@ -152,7 +167,6 @@ aiming). USB devices must be connected at boot (no hot-plug).
 | **Y** | Toggle console |
 | D-pad | Arrow keys |
 | **R** trigger | Click |
-| **Start** | Escape |
 
 > The GC controller has no HOME button. Use Start to open the menu and quit
 > from there, or use the Wii's Power/Reset buttons to return to the
@@ -175,8 +189,7 @@ input falls back to the GameCube controller automatically.
 | Nunchuk **C** | Crouch |
 | **+** | Menu (Escape) |
 | **-** | Scoreboard |
-| D-pad up/down | Next/prev weapon |
-| D-pad left/right | Prev/next weapon (alt) |
+| D-pad left/right | Prev/next weapon |
 | **1** | Walk |
 | **HOME** | Exit to Homebrew Channel |
 
@@ -193,9 +206,10 @@ input falls back to the GameCube controller automatically.
 | Nunchuk **Z** | Click |
 | D-pad | Arrow keys |
 
-### Classic Controller
+### Classic Controller / Pro Controller
 
-Plug the Pro/Classic Controller into a Wiimote; it takes priority over the Wiimote's own input.
+Plug the Classic Controller or Pro Controller into a Wiimote; it takes
+priority over the Wiimote's own buttons and IR.
 
 #### In-game
 
@@ -209,12 +223,48 @@ Plug the Pro/Classic Controller into a Wiimote; it takes priority over the Wiimo
 | **A** | Jump |
 | **B** | Crouch |
 | **ZL** | Zoom |
-| **X** | Previous weapon |
-| **Y** | Next weapon |
+| **X** | Next weapon |
+| **Y** | Previous weapon |
+| **+** | Menu (Escape) |
+| **-** | Scoreboard |
+| D-pad up/down | Move forward/back |
+| D-pad left/right | Strafe |
+
+#### Menus
+
+| Input | Action |
+|---|---|
+| Left stick | Move cursor |
+| **A** | Confirm (Enter) |
+| **B** | Back (Escape) |
+| **ZR** | Click |
+| D-pad | Arrow keys |
+
+### Wii U GamePad (DRC)
+
+Available on vWii only. The port detects the GamePad automatically at startup;
+on a standard Wii the detection returns false and has no effect. Layout
+mirrors the Classic Controller.
+
+#### In-game
+
+| Input | Action |
+|---|---|
+| Left stick | Move (forward/back + strafe) |
+| Right stick | Look (yaw + pitch) |
+| **ZR** | Fire |
+| **L** | Walk |
+| **R** | Use item |
+| **A** | Jump |
+| **B** | Crouch |
+| **ZL** | Zoom |
+| **X** | Next weapon |
+| **Y** | Previous weapon |
 | **+** | Menu (Escape) |
 | **-** | Scoreboard |
 | D-pad up/down | Next/prev weapon |
 | D-pad left/right | Prev/next weapon (alt) |
+| **HOME** | Exit to Homebrew Channel |
 
 #### Menus
 
@@ -232,7 +282,7 @@ Plug the Pro/Classic Controller into a Wiimote; it takes priority over the Wiimo
 Plug a standard USB keyboard into the Wii to type console commands, server
 IPs, and chat messages. Press `~` (tilde) to toggle the Q3 console.
 
-All standard keys are supported: letters, numbers, symbols, F1-F12, arrow
+All standard keys are supported: letters, numbers, symbols, F1–F12, arrow
 keys, numpad, and modifiers (Shift, Ctrl, Alt).
 
 ### USB mouse
@@ -255,18 +305,22 @@ the local player).
 
 | Region | Size | Location | Notes |
 |---|---|---|---|
-| Hunk (`com_hunkMegs`) | up to 32 MB | MEM2 (top) | Maps, shaders, models. Sized dynamically from MEM2 available at boot |
+| Hunk (`com_hunkMegs`) | up to 32 MB | MEM2 (top) | Maps, shaders, models. Sized dynamically from available MEM2 at boot |
 | Zone (`com_zoneMegs`) | 8 MB | sbrk (MEM2) | Dynamic allocs, zlib inflate |
 | Sound (`com_soundMegs`) | 4 MB | sbrk (MEM2) | Audio buffers |
 | sbrk heap | ~19 MB | MEM2 (bottom) | OpenGX textures, memalign, smaller allocs |
 | GX FIFO | 256 KB | MEM1 | Command buffer |
-| Framebuffers | ~2.4 MB | MEM1 | Two XFB at 640x480 |
+| Framebuffers | ~2.4 MB | MEM1 | Two XFB at 640×480 |
 | Stack | 512 KB | MEM1 | Overridden from 16 KB default |
+
+---
+
 ## Known issues
 
-- [ ] Missing Q3 logo at the top of the main menu
-- [ ] Missing player model in the Player Setup menu
-- [ ] No mod support (loading mods such as Team Arena crashes)
+- Browsing many player models in the Player Model selection screen before
+  starting a match can exhaust hunk memory in-game, causing "Memory is low.
+  Using deferred model." messages. The hunk is a bump allocator reset only
+  on map load — model meshes loaded in the menu are not freed between screens.
 
 ---
 

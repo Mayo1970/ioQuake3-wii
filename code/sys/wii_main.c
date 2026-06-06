@@ -148,7 +148,7 @@ int main(int argc, char *argv[])
         "+set r_simpleMipMaps 1 "
         "+set r_drawSun 0 "
         "+set r_primitives 2 "
-        "+set com_maxfps 30 "
+        "+set com_maxfps " WII_MAXFPS_STR " "
         "+set pmove_fixed 1 "
         "+set s_khz 22 "
 #if defined(STANDALONETA)
@@ -168,7 +168,16 @@ int main(int argc, char *argv[])
         "+set fraglimit 0 "
         "+set timelimit 0 "
         "+set com_logfile 2 "
+        /* vm_ui must be set before Com_Init (CL_InitUI runs during Com_Init).
+         * vm_cgame/vm_game are set post-init in Wii_Input_SetCvars().
+         * 1 = VMI_BYTECODE (interpreter); 2 = VMI_COMPILED (native PPC JIT).
+         * The JIT only actually engages if HAVE_VM_COMPILED is also defined
+         * (see wii_platform.h, gated on WII_VM_NATIVE). */
+#if defined(WII_VM_NATIVE)
+        "+set vm_ui 2"
+#else
         "+set vm_ui 1"
+#endif
 #if defined(STANDALONETA)
         " +set fs_game missionpack"
 #elif defined(WII_FSGAME)
@@ -220,14 +229,17 @@ int main(int argc, char *argv[])
     boot_mark("NET_Init done, entering main loop");
 
     while (1) {
-        Wii_Input_Frame();
+        Com_Frame();
 
+        /* Input is polled inside Com_Frame() via IN_Frame() -> Wii_Input_Frame(),
+         * which also latches the HOME-button state. Check that latch here instead
+         * of calling Wii_Input_Frame() a second time: the old direct call ran a
+         * full controller scan twice per frame and double-applied every
+         * relative-motion input (USB mouse, Wiimote IR body-turn, menu cursor). */
         if (Wii_Input_HomePressed()) {
             Com_Quit_f();
             break;
         }
-
-        Com_Frame();
     }
 
     Wii_Snd_Shutdown();

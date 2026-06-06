@@ -89,7 +89,6 @@ void Wii_GX_EndFrame(void)
     extern int ogx_prepare_swap_buffers(void);
     ogx_prepare_swap_buffers();
 
-    /* Async pipeline — no GX_DrawDone() stall; only WaitVSync blocks */
     GX_SetDrawDone();
     s_fb_index ^= 1;
     GX_CopyDisp(s_framebuf[s_fb_index], GX_TRUE);

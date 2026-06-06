@@ -2926,9 +2926,30 @@ qboolean CL_CheckPaused(void)
 	// lag behind.
 	if(cl_paused->integer || cl_paused->modified)
 		return qtrue;
-	
+
 	return qfalse;
 }
+
+#if defined(GEKKO)
+/*
+==================
+CL_InMenu
+Wii: true when a menu/UI is in front rather than live gameplay, so Com_Frame
+can run menus at a higher framerate (60) than in-game (30). Covers the main
+menu / server browser / loading (clc.state != CA_ACTIVE) and the in-game Esc
+menu (KEYCATCH_UI). Same state distinction the input layer uses for its
+menu-vs-in-game handling.
+==================
+*/
+qboolean CL_InMenu( void )
+{
+	if ( Key_GetCatcher( ) & KEYCATCH_UI )
+		return qtrue;
+	if ( clc.state != CA_ACTIVE )
+		return qtrue;
+	return qfalse;
+}
+#endif
 
 //============================================================================
 

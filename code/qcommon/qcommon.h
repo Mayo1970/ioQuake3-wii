@@ -995,6 +995,12 @@ void CL_Disconnect( qboolean showMainMenu );
 void CL_Shutdown(char *finalmsg, qboolean disconnect, qboolean quit);
 void CL_Frame( int msec );
 qboolean CL_GameCommand( void );
+#if defined(GEKKO)
+// Wii: true when a menu/UI is in front (main menu, browser, loading, or the
+// in-game Esc menu) rather than live gameplay. Used by Com_Frame to run menus
+// at a higher framerate than in-game. See [[perf-bottleneck-render-backend]].
+qboolean CL_InMenu( void );
+#endif
 void CL_KeyEvent (int key, qboolean down, unsigned time);
 
 void CL_CharEvent( int key );
