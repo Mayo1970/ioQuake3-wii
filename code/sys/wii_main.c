@@ -28,6 +28,13 @@ extern refexport_t *GetRefAPI(int apiVersion, refimport_t *rimp);
 static void *xfb = NULL;
 static GXRModeObj *rmode = NULL;
 
+/* Storage device root: "sd:/quake3" on a normal Wii, "usb:/quake3" on a Wii
+ * Mini (no SD slot, USB-only) or any USB-booted setup. Detected in
+ * Wii_MountSD(); every storage path (fs_basepath/homepath, Sys_Default*Path,
+ * qkey, debug logs) uses this instead of a hardcoded "sd:". Defaults to SD so
+ * any early reader is sane before detection runs. */
+char wii_dev_root[32] = "sd:/quake3";
+
 static void Wii_InitConsole(void)
 {
     VIDEO_Init();
@@ -44,17 +51,54 @@ static void Wii_InitConsole(void)
         VIDEO_WaitVSync();
 }
 
+static qboolean Wii_FindDataRoot(void)
+{
+    /* SD first (normal Wii), then USB (Wii Mini / USB-booted). chdir() succeeds
+     * only if the device is mounted AND the /quake3 dir exists, so it both
+     * probes and sets the cwd in one step. */
+    static const char *roots[] = { "sd:/quake3", "usb:/quake3" };
+    int i;
+    for (i = 0; i < (int)(sizeof(roots) / sizeof(roots[0])); i++) {
+        if (chdir(roots[i]) == 0) {
+            Q_strncpyz(wii_dev_root, roots[i], sizeof(wii_dev_root));
+            return qtrue;
+        }
+    }
+    return qfalse;
+}
+
 static qboolean Wii_MountSD(void)
 {
-    if (!fatInitDefault()) {
-        printf("[wii] fatInitDefault() failed – no SD card?\n");
+    int attempt;
+
+    /* Mount whatever FAT device is present. fatInitDefault() returns true once
+     * any default device (SD or USB) mounts. USB mass storage can enumerate a
+     * beat later than SD, so retry until it comes up. A normal Wii's SD mounts
+     * on the first try, so this loop is a no-op there. */
+    for (attempt = 0; attempt < 20; attempt++) {
+        if (fatInitDefault())
+            break;
+        usleep(150000); /* 150 ms - let USB enumerate */
+    }
+    if (attempt == 20) {
+        printf("[wii] fatInitDefault() failed - no SD or USB FAT device\n");
         return qfalse;
     }
+
+    /* Find which mounted device actually holds the data (SD on a normal Wii,
+     * USB on a Wii Mini). Retry briefly in case the filesystem settles a beat
+     * after mount. */
+    for (attempt = 0; attempt < 10; attempt++) {
+        if (Wii_FindDataRoot()) {
 #ifdef WII_DEBUG
-    printf("[wii] SD card mounted OK\n");
+            printf("[wii] data root: %s\n", wii_dev_root);
 #endif
-    chdir("sd:/quake3");
-    return qtrue;
+            return qtrue;
+        }
+        usleep(100000); /* 100 ms */
+    }
+    printf("[wii] mounted, but no /quake3 dir on sd: or usb:\n");
+    return qfalse;
 }
 
 extern u32 Wii_MEM2_Init(void);
@@ -65,13 +109,15 @@ static void wii_reset_cb(u32 irq, void *ctx){ (void)irq; (void)ctx; exit(0); }
 #ifdef WII_DEBUG
 void crash_mark(const char *msg)
 {
-    FILE *f = fopen("sd:/quake3/crash.txt", "a");
+    char p[64]; snprintf(p, sizeof(p), "%s/crash.txt", wii_dev_root);
+    FILE *f = fopen(p, "a");
     if (f) { fprintf(f, "%s\n", msg); fclose(f); }
 }
 #define CRASHLOG(fmt, ...) do { char _cb[256]; snprintf(_cb, sizeof(_cb), fmt, ##__VA_ARGS__); crash_mark(_cb); } while(0)
 void boot_mark(const char *msg)
 {
-    FILE *f = fopen("sd:/quake3/boot.txt", "a");
+    char p[64]; snprintf(p, sizeof(p), "%s/boot.txt", wii_dev_root);
+    FILE *f = fopen(p, "a");
     if (f) { fprintf(f, "%s\n", msg); fclose(f); }
 }
 #define WII_DBG_PRINTF(...) do { printf(__VA_ARGS__); fflush(stdout); } while(0)
@@ -95,14 +141,14 @@ int main(int argc, char *argv[])
     }
 
 #ifdef WII_DEBUG
-    { FILE *f = fopen("sd:/quake3/boot.txt", "w"); if (f) fclose(f); }
-    boot_mark("main() reached, SD mounted");
+    { char p[64]; snprintf(p, sizeof(p), "%s/boot.txt", wii_dev_root); FILE *f = fopen(p, "w"); if (f) fclose(f); }
+    boot_mark("main() reached, storage mounted");
     {
         char _mem2msg[64];
         snprintf(_mem2msg, sizeof(_mem2msg), "MEM2 bump: %u MB", (unsigned)mem2_bump_mb);
         boot_mark(_mem2msg);
     }
-    { FILE *f = fopen("sd:/quake3/crash.txt", "w"); if (f) fclose(f); }
+    { char p[64]; snprintf(p, sizeof(p), "%s/crash.txt", wii_dev_root); FILE *f = fopen(p, "w"); if (f) fclose(f); }
     CRASHLOG("main() started");
 #endif
 
@@ -128,15 +174,15 @@ int main(int argc, char *argv[])
 
     static char cmdline[1024];
     snprintf(cmdline, sizeof(cmdline),
-        "+set fs_basepath sd:/quake3 "
-        "+set fs_homepath sd:/quake3 "
+        "+set fs_basepath %s "
+        "+set fs_homepath %s "
         "+set fs_steampath \"\" "
         "+set fs_gogpath \"\" "
         "+set com_basegame " WII_BASEGAME " "
         "+set com_hunkMegs %u "
         "+set com_zoneMegs 8 "
         ,
-        (unsigned)hunk_mb);
+        wii_dev_root, wii_dev_root, (unsigned)hunk_mb);
     snprintf(cmdline + strlen(cmdline), sizeof(cmdline) - strlen(cmdline),
         "+set r_mode -1 "
         "+set r_picmip 2 "
@@ -189,11 +235,13 @@ int main(int argc, char *argv[])
     SYS_SetResetCallback(wii_reset_cb);
 
     {
-        FILE *kf = fopen("sd:/quake3/qkey", "rb");
+        char qkeypath[64];
+        snprintf(qkeypath, sizeof(qkeypath), "%s/qkey", wii_dev_root);
+        FILE *kf = fopen(qkeypath, "rb");
         if (kf) {
             fclose(kf);
         } else {
-            kf = fopen("sd:/quake3/qkey", "wb");
+            kf = fopen(qkeypath, "wb");
             if (kf) {
                 unsigned char buf[2048];
                 for (int i = 0; i < 2048; i++) buf[i] = (unsigned char)(i & 0xFF);

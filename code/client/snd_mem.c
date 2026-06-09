@@ -100,6 +100,23 @@ void SND_setup(void) {
 	}
 	// allocate the stack based hunk allocator
 	sfxScratchBuffer = malloc(SND_CHUNK_SIZE * sizeof(short) * 4);	//Hunk_Alloc(SND_CHUNK_SIZE * sizeof(short) * 4);
+	if (!sfxScratchBuffer) {
+		// The wavelet/ADPCM mixers decode into sfxScratchBuffer; without it,
+		// S_PaintChannelFromWavelet/ADPCM would store decoded samples through a
+		// NULL pointer (DSI crash). If this (small) alloc fails after the pool
+		// succeeded, tear the pool back down to the same "no pool" state as a
+		// failed pool malloc, so sounds load with soundData==NULL and the
+		// mixer's existing guard skips them instead of crashing.
+		Com_Printf("SND_setup: scratch malloc failed — sound disabled\n");
+		free(buffer);
+		buffer = NULL;
+		scs = 0;
+		freelist = NULL;
+		inUse = 0;
+		sfxScratchPointer = NULL;
+		Com_Printf("Sound memory manager started (no pool)\n");
+		return;
+	}
 	sfxScratchPointer = NULL;
 
 	inUse = scs*sizeof(sndBuffer);

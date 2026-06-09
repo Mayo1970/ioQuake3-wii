@@ -123,7 +123,11 @@ endif
 ifeq ($(_DEBUG),1)
   WII_DEBUG_FLAG := -DWII_DEBUG
 else
-  WII_DEBUG_FLAG :=
+  # Release: define NDEBUG so the standard C convention compiles OUT assert()
+  # and HUNK_DEBUG (q_shared.h gates both on !defined(NDEBUG)). Without this a
+  # "release" make dol still ships every assert() as a live abort() trap and a
+  # 24-byte hunkblock_t header on every hunk allocation. Matches upstream ioq3.
+  WII_DEBUG_FLAG := -DNDEBUG
 endif
 
 ifeq ($(_240P),1)

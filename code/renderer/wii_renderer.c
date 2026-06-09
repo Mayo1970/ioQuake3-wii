@@ -42,11 +42,18 @@ static Q_NO_RETURN void QDECL wii_ri_Error(int level, const char *fmt, ...)
     Com_Error(level, "%s", buf);
 }
 
+#ifdef HUNK_DEBUG
 static void *wii_ri_Hunk_Alloc(int size, ha_pref pref, char *label,
                                 char *file, int line)
 {
     return Hunk_AllocDebug(size, pref, label, file, line);
 }
+#else
+static void *wii_ri_Hunk_Alloc(int size, ha_pref pref)
+{
+    return Hunk_Alloc(size, pref);
+}
+#endif
 
 static void *wii_ri_Malloc(int size)
 {
@@ -58,7 +65,11 @@ static void wii_ri_init(void)
     ri.Printf                    = wii_ri_Printf;
     ri.Error                     = wii_ri_Error;
     ri.Milliseconds              = Sys_Milliseconds;
+#ifdef HUNK_DEBUG
     ri.Hunk_AllocDebug           = wii_ri_Hunk_Alloc;
+#else
+    ri.Hunk_Alloc                = wii_ri_Hunk_Alloc;
+#endif
     ri.Hunk_AllocateTempMemory   = Hunk_AllocateTempMemory;
     ri.Hunk_FreeTempMemory       = Hunk_FreeTempMemory;
     ri.Malloc                    = wii_ri_Malloc;

@@ -171,7 +171,10 @@ static inline void wii_diag(const char *fmt, ...) {
      * count-capped so the volume is bounded. */
     static FILE *f = NULL;
     if (!f) {
-        f = fopen("sd:/quake3/diag.txt", "a");
+        extern char wii_dev_root[];   /* "sd:/quake3" or "usb:/quake3" (Wii Mini) */
+        char path[64];
+        snprintf(path, sizeof(path), "%s/diag.txt", wii_dev_root);
+        f = fopen(path, "a");
         if (!f) return;
     }
     va_list ap;

@@ -95,9 +95,12 @@ qboolean Sys_RandomBytes(byte *string, int len)
     return qtrue;
 }
 
-char *Sys_DefaultBasePath(void)     { return "sd:/quake3"; }
-char *Sys_DefaultInstallPath(void)  { return "sd:/quake3"; }
-char *Sys_DefaultHomePath(void)     { return "sd:/quake3"; }
+/* Detected at boot in wii_main.c: "sd:/quake3" (normal Wii) or "usb:/quake3"
+ * (Wii Mini / USB-booted). All default paths follow the device the data is on. */
+extern char wii_dev_root[];
+char *Sys_DefaultBasePath(void)     { return wii_dev_root; }
+char *Sys_DefaultInstallPath(void)  { return wii_dev_root; }
+char *Sys_DefaultHomePath(void)     { return wii_dev_root; }
 
 void *Sys_LoadDll(const char *name,
                   intptr_t (**entryPoint)(int, ...),
@@ -273,9 +276,9 @@ qboolean Sys_Mkdir(const char *p)               { return (mkdir(p,0755)==0 || er
 FILE    *Sys_FOpen(const char *p, const char *m)        { return fopen(p,m); }
 FILE    *Sys_Mkfifo(const char *p)                      { (void)p; return NULL; }
 
-char *Sys_DefaultHomeConfigPath(void) { return "sd:/quake3"; }
-char *Sys_DefaultHomeDataPath(void)   { return "sd:/quake3"; }
-char *Sys_DefaultHomeStatePath(void)  { return "sd:/quake3"; }
+char *Sys_DefaultHomeConfigPath(void) { return wii_dev_root; }
+char *Sys_DefaultHomeDataPath(void)   { return wii_dev_root; }
+char *Sys_DefaultHomeStatePath(void)  { return wii_dev_root; }
 char *Sys_SteamPath(void)             { return ""; }
 char *Sys_GogPath(void)               { return ""; }
 char *Sys_MicrosoftStorePath(void)    { return ""; }

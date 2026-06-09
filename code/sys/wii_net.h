@@ -55,7 +55,13 @@ static inline int Wii_Net_Init(void)
         s_net_ip_top_ready = 1;
     }
 
-    int ifr = if_config(wii_net_local_ip, netmask, gateway, 1, 20);
+    /* DHCP with a SMALL retry count. This runs synchronously in main() before
+     * Com_Init/the renderer, so a large retry count means no-router / unplugged
+     * cable blocks the entire boot (black screen forever) waiting for a lease
+     * that never arrives. 3 retries bounds the wait to a few seconds; a working
+     * network answers in well under that. The result is best-effort and non-fatal
+     * (main() discards it) — online play simply works once a network is present. */
+    int ifr = if_config(wii_net_local_ip, netmask, gateway, 1, 3);
     return ifr;
 }
 
