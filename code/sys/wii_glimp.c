@@ -5,6 +5,11 @@
 
 #include "wii_glimp.h"
 #include "wii_platform.h"
+#if defined(WII_NATIVE_GX)
+/* Only GXBE_FrameEnd is needed here; avoid pulling tr_gx.h's renderer types
+ * (glIndex_t, GLuint, etc.) into the sys compilation unit. */
+extern void GXBE_FrameEnd(void);
+#endif
 
 #define GX_FIFO_SIZE    (256 * 1024)
 #define NUM_FRAMEBUFFERS 2
@@ -14,6 +19,76 @@ static void        *s_framebuf[NUM_FRAMEBUFFERS] = { NULL, NULL };
 static void        *s_gp_fifo     = NULL;
 static int          s_fb_index    = 0;
 static qboolean     s_initialised = qfalse;
+
+#if defined(WII_GX_PROFILE) && WII_GX_PROFILE
+#include <ogc/lwp_watchdog.h>
+
+/* GP bottleneck profiler. Logs GP perf counters to diag.txt each GXPROF_WINDOW frames.
+ * xf_wait_out_clk high => GP-bound (native GX won't help); ~0 with large bk => FIFO/CPU-bound. */
+#define GXPROF_WINDOW 128
+
+static const struct { u32 p0, p1; const char *l0, *l1; } s_gxprof_cfg[] = {
+    { GX_PERF0_XF_WAIT_OUT, GX_PERF1_CLOCKS,     "xf_wait_out_clk", "gp_clocks"      },
+    { GX_PERF0_XF_WAIT_IN,  GX_PERF1_CLOCKS,     "xf_wait_in_clk",  "gp_clocks"      },
+    { GX_PERF0_TRIANGLES,   GX_PERF1_FIFO_REQ,   "triangles",       "fifo_32B_lines" },
+    { GX_PERF0_VERTICES,    GX_PERF1_CP_ALL_REQ, "vertices",        "cp_32B_reqs"    },
+};
+#define GXPROF_NCFG ((int)(sizeof(s_gxprof_cfg) / sizeof(s_gxprof_cfg[0])))
+
+static int s_gxprof_cfgidx  = 0;
+static int s_gxprof_frames  = 0;
+static u64 s_gxprof_sum0    = 0;
+static u64 s_gxprof_sum1    = 0;
+static u64 s_gxprof_sum_us  = 0;
+static u64 s_gxprof_last_tb = 0;
+
+static void gxprof_init(void)
+{
+    GX_SetGPMetric(s_gxprof_cfg[0].p0, s_gxprof_cfg[0].p1);
+    GX_ClearGPMetric();
+    s_gxprof_last_tb = gettime();
+    wii_diag("[gxprof] active: %d-frame windows, GP=243MHz (243000 clk/ms). "
+             "xf_wait_out high => GP-bound (native GX won't help); "
+             "xf_wait_out ~0 with large bk => CPU/feed-bound (native GX helps).\n",
+             GXPROF_WINDOW);
+}
+
+static void gxprof_frame(void)
+{
+    u32 c0 = 0, c1 = 0;
+    u64 now = gettime();
+
+    GX_ReadGPMetric(&c0, &c1);
+    GX_ClearGPMetric();
+
+    s_gxprof_sum0   += c0;
+    s_gxprof_sum1   += c1;
+    s_gxprof_sum_us += ticks_to_microsecs(now - s_gxprof_last_tb);
+    s_gxprof_last_tb = now;
+
+    if (++s_gxprof_frames >= GXPROF_WINDOW) {
+        u64 n     = (u64)s_gxprof_frames;
+        u64 avg0  = s_gxprof_sum0 / n;
+        u64 avg1  = s_gxprof_sum1 / n;
+        u64 avgus = s_gxprof_sum_us / n;
+
+        wii_diag("[gxprof] %s=%llu %s=%llu | frame=%lu.%02lums%s\n",
+                 s_gxprof_cfg[s_gxprof_cfgidx].l0, (unsigned long long)avg0,
+                 s_gxprof_cfg[s_gxprof_cfgidx].l1, (unsigned long long)avg1,
+                 (unsigned long)(avgus / 1000),
+                 (unsigned long)((avgus % 1000) / 10),
+                 (s_gxprof_cfg[s_gxprof_cfgidx].p1 == GX_PERF1_CLOCKS)
+                     ? " (gp_clocks/243000=gp_elapsed_ms)" : "");
+
+        s_gxprof_sum0 = s_gxprof_sum1 = s_gxprof_sum_us = 0;
+        s_gxprof_frames = 0;
+        s_gxprof_cfgidx = (s_gxprof_cfgidx + 1) % GXPROF_NCFG;
+        GX_SetGPMetric(s_gxprof_cfg[s_gxprof_cfgidx].p0,
+                       s_gxprof_cfg[s_gxprof_cfgidx].p1);
+        GX_ClearGPMetric();
+    }
+}
+#endif /* WII_GX_PROFILE */
 
 qboolean Wii_GX_Init(void)
 {
@@ -67,10 +142,14 @@ qboolean Wii_GX_Init(void)
     GX_CopyDisp(s_framebuf[s_fb_index], GX_TRUE);
     GX_SetDispCopyGamma(GX_GM_1_0);
 
-    extern void ogx_initialize(void);
-    extern void ogx_set_framebuffer_height(int);
-    ogx_initialize();
-    ogx_set_framebuffer_height((int)s_rmode->efbHeight);
+#if !defined(WII_NATIVE_GX)
+    {
+        extern void ogx_initialize(void);
+        extern void ogx_set_framebuffer_height(int);
+        ogx_initialize();
+        ogx_set_framebuffer_height((int)s_rmode->efbHeight);
+    }
+#endif
 
     wii_diag("[glimp] viTVMode=0x%02x fbWidth=%u efbHeight=%u xfbHeight=%u viHeight=%u fb_height_set=%d\n",
              (unsigned)s_rmode->viTVMode,
@@ -80,22 +159,37 @@ qboolean Wii_GX_Init(void)
              (unsigned)s_rmode->viHeight,
              (int)s_rmode->efbHeight);
 
+#if defined(WII_GX_PROFILE) && WII_GX_PROFILE
+    gxprof_init();
+#endif
+
     s_initialised = qtrue;
     return qtrue;
 }
 
 void Wii_GX_EndFrame(void)
 {
-    extern int ogx_prepare_swap_buffers(void);
-    ogx_prepare_swap_buffers();
+#if !defined(WII_NATIVE_GX)
+    /* ogx_prepare_swap_buffers runs GX_SetDrawSync(0) — would stomp native staging-ring fences. */
+    {
+        extern int ogx_prepare_swap_buffers(void);
+        ogx_prepare_swap_buffers();
+    }
+#endif
 
-    GX_SetDrawDone();
+    /* EFB→XFB copy then GX_DrawDone to ensure the buffer is ready before VI.
+     * No VIDEO_WaitVSync — hard vsync halves FPS when a frame runs just over 16.6 ms. */
     s_fb_index ^= 1;
     GX_CopyDisp(s_framebuf[s_fb_index], GX_TRUE);
-    GX_Flush();
+    GX_DrawDone();
+#if defined(WII_GX_PROFILE) && WII_GX_PROFILE
+    gxprof_frame();
+#endif
+#if defined(WII_NATIVE_GX)
+    GXBE_FrameEnd();
+#endif
     VIDEO_SetNextFramebuffer(s_framebuf[s_fb_index]);
     VIDEO_Flush();
-    VIDEO_WaitVSync();
 }
 
 void Wii_GX_Shutdown(void)

@@ -1,5 +1,3 @@
-/* Wii Sys_* interface */
-
 #include <gccore.h>
 #include <ogc/lwp_watchdog.h>
 #include <wiiuse/wpad.h>
@@ -23,6 +21,11 @@ extern int Key_GetCatcher(void);
 #include "wii_glimp.h"
 #include "../input/wii_input.h"
 #include "../audio/wii_snd.h"
+
+#ifdef WII_DEBUG
+/* Shared diag.txt handle for ALL TUs — see wii_diag/wii_diag_sync in wii_platform.h. */
+FILE *wii_diag_fp = NULL;
+#endif
 
 void Sys_Init(void)
 {
@@ -95,8 +98,7 @@ qboolean Sys_RandomBytes(byte *string, int len)
     return qtrue;
 }
 
-/* Detected at boot in wii_main.c: "sd:/quake3" (normal Wii) or "usb:/quake3"
- * (Wii Mini / USB-booted). All default paths follow the device the data is on. */
+/* Active storage root, set at boot: "sd:/quake3" or "usb:/quake3" (Wii Mini). */
 extern char wii_dev_root[];
 char *Sys_DefaultBasePath(void)     { return wii_dev_root; }
 char *Sys_DefaultInstallPath(void)  { return wii_dev_root; }
@@ -183,7 +185,7 @@ void Sys_Error(const char *error, ...)
     va_start(ap, error);
     vsnprintf(msg, sizeof(msg), error, ap);
     va_end(ap);
-    wii_diag("Sys_Error: %s\n", msg);
+    wii_diag_sync("Sys_Error: %s\n", msg);
     printf("\n\n\n");
     printf("=============================\n");
     printf("[FATAL ERROR]\n");
@@ -524,18 +526,63 @@ static inline int is_mem2_ptr(void *p)
     return mem2_base != NULL && (u8 *)p >= mem2_base;
 }
 
+/* JIT code buffers: recycled via this table because sbrk has <1 MB slack at map load
+ * and the bump must keep serving them (memalign-only mmap starves the heap on dm11). */
+#define WII_VMCODE_SLOTS 8
+static struct {
+    u8  *ptr;
+    u32  size;
+    int  used;
+} s_vmcode[WII_VMCODE_SLOTS];
+
 void *mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset)
 {
     (void)addr; (void)prot; (void)flags; (void)fd; (void)offset;
-    void *p = wii_mem2_alloc(len);
-    if (p) return p;
-    p = memalign(32, len);
+    int i;
+
+    /* Best-fit recycle: first-fit could park a small VM in a large slot, starving the next big one. */
+    int best = -1;
+    for (i = 0; i < WII_VMCODE_SLOTS; i++) {
+        if (s_vmcode[i].ptr && !s_vmcode[i].used && s_vmcode[i].size >= len &&
+            (best < 0 || s_vmcode[i].size < s_vmcode[best].size))
+            best = i;
+    }
+    if (best >= 0) {
+        s_vmcode[best].used = 1;
+        wii_diag_sync("mmap: len=%u recycled slot %d (size=%u) -> %p\n",
+            (unsigned)len, best, s_vmcode[best].size, (void *)s_vmcode[best].ptr);
+        return s_vmcode[best].ptr;
+    }
+
+    for (i = 0; i < WII_VMCODE_SLOTS; i++) {
+        if (!s_vmcode[i].ptr) {
+            void *p = wii_mem2_alloc(len);
+            if (!p)
+                break;
+            s_vmcode[i].ptr  = p;
+            s_vmcode[i].size = (u32)len;
+            s_vmcode[i].used = 1;
+            wii_diag_sync("mmap: len=%u bump slot %d -> %p\n", (unsigned)len, i, p);
+            return p;
+        }
+    }
+
+    void *p = memalign(32, len);
+    wii_diag_sync("mmap: len=%u memalign -> %p\n", (unsigned)len, p);
     return p ? p : (void *)-1;
 }
 
 int munmap(void *addr, size_t len)
 {
     (void)len;
+    int i;
+
+    for (i = 0; i < WII_VMCODE_SLOTS; i++) {
+        if (s_vmcode[i].ptr == addr) {
+            s_vmcode[i].used = 0;
+            return 0;
+        }
+    }
     if (!is_mem2_ptr(addr))
         free(addr);
     return 0;

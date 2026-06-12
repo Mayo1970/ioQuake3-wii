@@ -1613,4 +1613,9 @@ void ProjectDlightTexture_altivec( void );
 void RB_CalcDiffuseColor_altivec( unsigned char *colors );
 #endif
 
+#if defined(WII_NATIVE_GX)
+#include "../renderer/tr_gx.h"
+void R_MipMap( byte *in, int width, int height ); // tr_image.c; shared with tr_gx_texture.c
+#endif
+
 #endif //TR_LOCAL_H

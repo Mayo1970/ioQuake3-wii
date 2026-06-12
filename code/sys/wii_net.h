@@ -32,7 +32,6 @@ extern "C" {
 
 static char wii_net_local_ip[16];
 
-/* 1 if net_init() succeeded (IOS socket device open) */
 static int s_net_ip_top_ready = 0;
 
 static inline int Wii_Net_Init(void)
@@ -55,12 +54,7 @@ static inline int Wii_Net_Init(void)
         s_net_ip_top_ready = 1;
     }
 
-    /* DHCP with a SMALL retry count. This runs synchronously in main() before
-     * Com_Init/the renderer, so a large retry count means no-router / unplugged
-     * cable blocks the entire boot (black screen forever) waiting for a lease
-     * that never arrives. 3 retries bounds the wait to a few seconds; a working
-     * network answers in well under that. The result is best-effort and non-fatal
-     * (main() discards it) — online play simply works once a network is present. */
+    /* 3 DHCP retries: runs before Com_Init, so a large count = black-screen hang on no-router. */
     int ifr = if_config(wii_net_local_ip, netmask, gateway, 1, 3);
     return ifr;
 }

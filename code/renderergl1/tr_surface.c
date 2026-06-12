@@ -323,6 +323,20 @@ static void RB_SurfaceBeam( void )
 
 	GL_State( GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE );
 
+#if defined(WII_NATIVE_GX)
+	{
+		float st[2] = { 0.0f, 0.0f };
+
+		/* vertex count passed to GXBE_ImmediateBegin must EXACTLY match
+		 * the emitted count: (NUM_BEAM_SEGS+1) iterations x 2 verts */
+		GXBE_ImmediateBegin( GL_TRIANGLE_STRIP, ( NUM_BEAM_SEGS + 1 ) * 2 );
+		for ( i = 0; i <= NUM_BEAM_SEGS; i++ ) {
+			GXBE_ImmediateTexVertex( st, start_points[ i % NUM_BEAM_SEGS], 255, 0, 0, 255 );
+			GXBE_ImmediateTexVertex( st, end_points[ i % NUM_BEAM_SEGS], 255, 0, 0, 255 );
+		}
+		GXBE_ImmediateEnd();
+	}
+#else
 	qglColor3f( 1, 0, 0 );
 
 	qglBegin( GL_TRIANGLE_STRIP );
@@ -331,6 +345,7 @@ static void RB_SurfaceBeam( void )
 		qglVertex3fv( end_points[ i % NUM_BEAM_SEGS] );
 	}
 	qglEnd();
+#endif
 }
 
 //================================================================================
@@ -1028,6 +1043,24 @@ Draws x/y/z lines from the origin for orientation debugging
 static void RB_SurfaceAxis( void ) {
 	GL_Bind( tr.whiteImage );
 	GL_State( GLS_DEFAULT );
+#if defined(WII_NATIVE_GX)
+	{
+		float st[2] = { 0.0f, 0.0f };
+		float o[3]  = { 0, 0, 0 };
+		float px[3] = { 16, 0, 0 };
+		float py[3] = { 0, 16, 0 };
+		float pz[3] = { 0, 0, 16 };
+
+		GXBE_ImmediateBegin( GL_LINES, 6 );
+		GXBE_ImmediateTexVertex( st, o,  255, 0, 0, 255 );
+		GXBE_ImmediateTexVertex( st, px, 255, 0, 0, 255 );
+		GXBE_ImmediateTexVertex( st, o,  0, 255, 0, 255 );
+		GXBE_ImmediateTexVertex( st, py, 0, 255, 0, 255 );
+		GXBE_ImmediateTexVertex( st, o,  0, 0, 255, 255 );
+		GXBE_ImmediateTexVertex( st, pz, 0, 0, 255, 255 );
+		GXBE_ImmediateEnd();
+	}
+#else
 	qglLineWidth( 3 );
 	qglBegin( GL_LINES );
 	qglColor3f( 1,0,0 );
@@ -1041,6 +1074,7 @@ static void RB_SurfaceAxis( void ) {
 	qglVertex3f( 0,0,16 );
 	qglEnd();
 	qglLineWidth( 1 );
+#endif
 }
 
 //===========================================================================

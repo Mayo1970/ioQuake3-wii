@@ -26,22 +26,13 @@
 #  define ARCH_STRING "ppc"
 #endif
 
-/* In-game framerate cap injected into the boot cmdline (wii_main.c). The
- * Makefile passes -DWII_MAXFPS_STR via the WII_MAXFPS flag (default "30");
- * this fallback keeps the source compilable if built outside the Makefile.
- * 30 is stable on real Wii; 60 is for Wii U / vWii (faster CPU). Menus/loading
- * always run at 60 regardless (see CL_InMenu in common.c). */
+/* In-game FPS cap; Makefile passes -DWII_MAXFPS_STR (default 60). Menus always run at 60. */
 #ifndef WII_MAXFPS_STR
 #  define WII_MAXFPS_STR "30"
 #endif
 
-/* q_platform.h never defines HAVE_VM_COMPILED for the Wii (no GEKKO arch arm;
- * the __linux__ fallback that would is disabled because GEKKO is defined). So
- * the PPC JIT (code/qcommon/vm_powerpc.c) is normally compiled OUT and vm.c
- * forces VMI_BYTECODE regardless of the vm_* cvars (it prints "Architecture
- * doesn't have a bytecode compiler, using interpreter"). Define it here (gated
- * on the WII_VM_NATIVE build flag) to compile the JIT path in for experimental
- * native-PPC QVM builds. Default builds leave it undefined → interpreter. */
+/* q_platform.h never defines HAVE_VM_COMPILED for Wii, so vm.c forces the interpreter.
+ * Define it here (WII_VM_NATIVE builds only) to enable the PPC JIT in vm_powerpc.c. */
 #if defined(WII_VM_NATIVE) && !defined(HAVE_VM_COMPILED)
 #  define HAVE_VM_COMPILED
 #endif
@@ -66,7 +57,6 @@
 #  define MAP_FAILED ((void *)-1)
 #endif
 
-/* Constants for vm_powerpc.c compiled QVM */
 #ifndef PROT_READ
 #  define PROT_READ     1
 #  define PROT_WRITE    2
@@ -107,11 +97,7 @@ static inline int mprotect(void *addr, size_t len, int prot) {
 #include "sys/wii_net.h"
 #endif
 
-/*
- * Netchan memory tuning. MAX_RELIABLE_COMMANDS must stay at stock 64:
- * servers with custom content burst >16 reliable commands on connect,
- * causing CL_AddReliableCommand to Com_Error(ERR_DROP).
- */
+/* MAX_RELIABLE_COMMANDS must stay at stock 64: servers burst >16 on connect. */
 #ifndef MAX_RELIABLE_COMMANDS
 #define MAX_RELIABLE_COMMANDS   64      /* must be power-of-2 */
 #endif
@@ -154,37 +140,49 @@ static inline int mprotect(void *addr, size_t len, int prot) {
 #undef COLOR_WHITE
 #undef COLOR_ORANGE
 
-/* Diagnostic logging to sd:/quake3/diag.txt (WII_DEBUG only) */
 #include <stdio.h>
 #include <stdarg.h>
 #ifdef WII_DEBUG
-static inline void wii_diag(const char *fmt, ...) __attribute__((format(printf,1,2)));
-static inline void wii_diag(const char *fmt, ...) {
-    /* Keep one persistent handle open across calls. The previous version
-     * re-opened the file (fopen) and closed it (fclose) on every call; that
-     * directory-traversal + metadata I/O is a heavy blocking SD/FAT operation,
-     * and when wii_diag fires mid-frame from the renderer it stalls the GX FIFO
-     * and corrupts the displayed frame. Opening once removes that stall. We
-     * still fflush every line so diag.txt stays complete up to a crash/freeze
-     * (its whole purpose) — fflush on an already-open handle is far cheaper
-     * than the open+close it replaces, and the renderer's wii_diag calls are
-     * count-capped so the volume is bounded. */
-    static FILE *f = NULL;
-    if (!f) {
+#include <unistd.h>
+/* One handle shared by ALL TUs (defined in wii_sys.c) — per-TU static gave each TU its own
+ * append handle on the same FAT file, causing independent size views that overwrite each other. */
+extern FILE *wii_diag_fp;
+static inline FILE *wii_diag_open(void) {
+    if (!wii_diag_fp) {
         extern char wii_dev_root[];   /* "sd:/quake3" or "usb:/quake3" (Wii Mini) */
         char path[64];
         snprintf(path, sizeof(path), "%s/diag.txt", wii_dev_root);
-        f = fopen(path, "a");
-        if (!f) return;
+        wii_diag_fp = fopen(path, "a");
     }
+    return wii_diag_fp;
+}
+static inline void wii_diag(const char *fmt, ...) __attribute__((format(printf,1,2)));
+static inline void wii_diag(const char *fmt, ...) {
+    /* Persistent handle: per-call fopen/fclose stalls GX FIFO mid-frame and corrupts rendering. */
+    FILE *f = wii_diag_open();
+    if (!f) return;
     va_list ap;
     va_start(ap, fmt);
     vfprintf(f, fmt, ap);
     va_end(ap);
     fflush(f);
 }
+/* fsync commits the FAT dir entry — line survives a hard crash where fflush alone leaves a stale
+ * size in libfat's cache. Heavy SD I/O: load-path / error-path forensics only, never mid-frame. */
+static inline void wii_diag_sync(const char *fmt, ...) __attribute__((format(printf,1,2)));
+static inline void wii_diag_sync(const char *fmt, ...) {
+    FILE *f = wii_diag_open();
+    if (!f) return;
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+    fflush(f);
+    fsync(fileno(f));
+}
 #else
 static inline void wii_diag(const char *fmt, ...) { (void)fmt; }
+static inline void wii_diag_sync(const char *fmt, ...) { (void)fmt; }
 #endif
 
 #define USE_INTERNAL_SDL_HEADERS

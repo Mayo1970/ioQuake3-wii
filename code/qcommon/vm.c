@@ -377,7 +377,9 @@ vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc, qboolean unpure)
 	Com_sprintf( filename, sizeof(filename), "vm/%s.qvm", vm->name );
 	Com_Printf( "Loading vm file %s...\n", filename );
 
+	wii_diag_sync("VM_LoadQVM: reading %s\n", filename);
 	FS_ReadFileDir(filename, vm->searchPath, unpure, &header.v);
+	wii_diag_sync("VM_LoadQVM: read %s header=%p\n", filename, header.v);
 
 	if ( !header.h ) {
 		Com_Printf( "Failed.\n" );
@@ -448,6 +450,11 @@ vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc, qboolean unpure)
 	}
 	dataLength = 1 << i;
 
+	wii_diag_sync("VM_LoadQVM: %s data=%d lit=%d bss=%d code=%d instr=%d -> dataAlloc=%d hunk_remaining=%d\n",
+		filename, header.h->dataLength, header.h->litLength, header.h->bssLength,
+		header.h->codeLength, header.h->instructionCount, dataLength + 4,
+		Hunk_MemoryRemaining());
+
 	if(alloc)
 	{
 		// allocate zero filled space for initialized and uninitialized data
@@ -455,6 +462,7 @@ vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc, qboolean unpure)
 		vm->dataAlloc = dataLength + 4;
 		vm->dataBase = Hunk_Alloc(vm->dataAlloc, h_high);
 		vm->dataMask = dataLength - 1;
+		wii_diag_sync("VM_LoadQVM: dataBase=%p\n", vm->dataBase);
 	}
 	else
 	{
@@ -610,11 +618,11 @@ vm_t *VM_Create( const char *module, intptr_t (*systemCalls)(intptr_t *),
 
 	Q_strncpyz(vm->name, module, sizeof(vm->name));
 
-	wii_diag("VM_Create: finding %s\n", module);
+	wii_diag_sync("VM_Create: finding %s\n", module);
 	do
 	{
 		retval = FS_FindVM(&startSearch, filename, sizeof(filename), module, (interpret == VMI_NATIVE));
-		wii_diag("VM_Create: FS_FindVM %s retval=%d file=%s\n", module, retval, filename);
+		wii_diag_sync("VM_Create: FS_FindVM %s retval=%d file=%s\n", module, retval, filename);
 
 		if(retval == VMI_NATIVE)
 		{
@@ -633,7 +641,7 @@ vm_t *VM_Create( const char *module, intptr_t (*systemCalls)(intptr_t *),
 		else if(retval == VMI_COMPILED)
 		{
 			vm->searchPath = startSearch;
-			wii_diag("VM_Create: loading QVM %s\n", module);
+			wii_diag_sync("VM_Create: loading QVM %s\n", module);
 			if((header = VM_LoadQVM(vm, qtrue, qfalse)))
 				break;
 
@@ -652,6 +660,8 @@ vm_t *VM_Create( const char *module, intptr_t (*systemCalls)(intptr_t *),
 	// allocate space for the jump targets, which will be filled in by the compile/prep functions
 	vm->instructionCount = header->instructionCount;
 	vm->instructionPointers = Hunk_Alloc(vm->instructionCount * sizeof(*vm->instructionPointers), h_high);
+	wii_diag_sync("VM_Create: instructionPointers=%p count=%d\n",
+		(void *)vm->instructionPointers, vm->instructionCount);
 
 	// copy or compile the instructions
 	vm->codeLength = header->codeLength;
@@ -667,9 +677,9 @@ vm_t *VM_Create( const char *module, intptr_t (*systemCalls)(intptr_t *),
 	if(interpret != VMI_BYTECODE)
 	{
 		vm->compiled = qtrue;
-		wii_diag("VM_Create: compiling %s\n", module);
+		wii_diag_sync("VM_Create: compiling %s\n", module);
 		VM_Compile( vm, header );
-		wii_diag("VM_Create: compile done %s compiled=%d\n", module, vm->compiled);
+		wii_diag_sync("VM_Create: compile done %s compiled=%d\n", module, vm->compiled);
 	}
 #endif
 	// VM_Compile may have reset vm->compiled if compilation failed

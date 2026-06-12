@@ -459,7 +459,12 @@ R_MipMap
 Operates in place, quartering the size of the texture
 ================
 */
+#if defined(WII_NATIVE_GX)
+/* non-static: tr_gx_texture.c generates the native GX mip chain with it */
+void R_MipMap (byte *in, int width, int height) {
+#else
 static void R_MipMap (byte *in, int width, int height) {
+#endif
 	int		i, j;
 	byte	*out;
 	int		row;
@@ -550,7 +555,15 @@ Upload32
 
 ===============
 */
-static void Upload32( unsigned *data, 
+#if defined(WII_NATIVE_GX)
+/* Set by R_CreateImage before calling Upload32 so the GX upload hooks
+ * inside Upload32 know the destination slot and wrap mode without
+ * changing Upload32's upstream signature. */
+static int s_gxUploadTexnum = -1;
+static int s_gxUploadWrap   = GL_REPEAT;
+#endif
+
+static void Upload32( unsigned *data,
 						  int width, int height, 
 						  qboolean mipmap, 
 						  qboolean picmip, 
@@ -743,7 +756,13 @@ static void Upload32( unsigned *data,
 		( scaled_height == height ) ) {
 		if (!mipmap)
 		{
+#if defined(WII_NATIVE_GX)
+			GXBE_Upload32( data, scaled_width, scaled_height,
+			               (int)internalFormat, s_gxUploadTexnum, s_gxUploadWrap,
+			               qfalse );
+#else
 			qglTexImage2D (GL_TEXTURE_2D, 0, internalFormat, scaled_width, scaled_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+#endif
 			*pUploadWidth = scaled_width;
 			*pUploadHeight = scaled_height;
 			*format = internalFormat;
@@ -775,8 +794,21 @@ static void Upload32( unsigned *data,
 	*pUploadHeight = scaled_height;
 	*format = internalFormat;
 
+#if defined(WII_NATIVE_GX)
+	/* scaledBuffer is the final level-0 image (scaled + lightscaled).
+	 * When mipmap is set, GXBE_Upload32 generates the full chain itself
+	 * (Phase 5), reducing scaledBuffer in place — the same mutation the
+	 * stock CPU mip loop below performs. */
+	GXBE_Upload32( scaledBuffer, scaled_width, scaled_height,
+	               (int)internalFormat, s_gxUploadTexnum, s_gxUploadWrap,
+	               mipmap );
+#else
 	qglTexImage2D (GL_TEXTURE_2D, 0, internalFormat, scaled_width, scaled_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, scaledBuffer );
+#endif
 
+#if !defined(WII_NATIVE_GX)
+	/* native GX path generates its mip chain inside GXBE_Upload32 above;
+	 * skip this CPU mip loop — its uploads would be qgl no-ops anyway */
 	if (mipmap)
 	{
 		int		miplevel;
@@ -800,6 +832,7 @@ static void Upload32( unsigned *data,
 			qglTexImage2D (GL_TEXTURE_2D, miplevel, internalFormat, scaled_width, scaled_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, scaledBuffer );
 		}
 	}
+#endif /* !WII_NATIVE_GX */
 done:
 
 	if (mipmap)
@@ -855,7 +888,11 @@ image_t *R_CreateImage( const char *name, byte *pic, int width, int height,
 	}
 
 	image = tr.images[tr.numImages] = ri.Hunk_Alloc( sizeof( image_t ), h_low );
+#if defined(WII_NATIVE_GX)
+	GXBE_CreateTexnum( &image->texnum );
+#else
 	qglGenTextures(1, &image->texnum);
+#endif
 	tr.numImages++;
 
 	image->type = type;
@@ -883,7 +920,16 @@ image_t *R_CreateImage( const char *name, byte *pic, int width, int height,
 
 	GL_Bind(image);
 
-	Upload32( (unsigned *)pic, image->width, image->height, 
+#if defined(WII_NATIVE_GX)
+	/* The GX upload happens INSIDE Upload32 (at the level-0 upload points),
+	 * so it gets the final scaled + picmipped + lightscaled buffer instead
+	 * of the original full-size pic. Pass slot/wrap via file statics to
+	 * keep Upload32's upstream signature. */
+	s_gxUploadTexnum = (int)image->texnum;
+	s_gxUploadWrap   = glWrapClampMode;
+#endif
+
+	Upload32( (unsigned *)pic, image->width, image->height,
 								image->flags & IMGFLAG_MIPMAP,
 								image->flags & IMGFLAG_PICMIP,
 								isLightmap,
@@ -892,11 +938,13 @@ image_t *R_CreateImage( const char *name, byte *pic, int width, int height,
 								&image->uploadWidth,
 								&image->uploadHeight );
 
+#if !defined(WII_NATIVE_GX)
 	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, glWrapClampMode );
 	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, glWrapClampMode );
 
 	glState.currenttextures[glState.currenttmu] = 0;
 	qglBindTexture( GL_TEXTURE_2D, 0 );
+#endif
 
 	if ( image->TMU == 1 ) {
 		GL_SelectTexture( 0 );
@@ -1365,13 +1413,24 @@ void R_DeleteTextures( void ) {
 	int		i;
 
 	for ( i=0; i<tr.numImages ; i++ ) {
+#if defined(WII_NATIVE_GX)
+		GXBE_DeleteTexnum( (int)tr.images[i]->texnum );
+#else
 		qglDeleteTextures( 1, &tr.images[i]->texnum );
+#endif
 	}
 	Com_Memset( tr.images, 0, sizeof( tr.images ) );
 
 	tr.numImages = 0;
+#if defined(WII_NATIVE_GX)
+	s_gx_next_texnum = 0;
+#endif
 
 	Com_Memset( glState.currenttextures, 0, sizeof( glState.currenttextures ) );
+#if defined(WII_NATIVE_GX)
+	gxState.boundtex[0] = -1;
+	gxState.boundtex[1] = -1;
+#else
 	if ( qglActiveTextureARB ) {
 		GL_SelectTexture( 1 );
 		qglBindTexture( GL_TEXTURE_2D, 0 );
@@ -1380,6 +1439,7 @@ void R_DeleteTextures( void ) {
 	} else {
 		qglBindTexture( GL_TEXTURE_2D, 0 );
 	}
+#endif
 }
 
 /*

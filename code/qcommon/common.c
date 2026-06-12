@@ -279,7 +279,7 @@ void QDECL Com_Error( int code, const char *fmt, ... ) {
 	qboolean	restartClient;
 
 	if(com_errorEntered) {
-		wii_diag("Com_Error: recursive error after: %s | new: ", com_errorMessage);
+		wii_diag_sync("Com_Error: recursive error after: %s | new: ", com_errorMessage);
 		Sys_Error("recursive error after: %s", com_errorMessage);
 	}
 
@@ -330,7 +330,7 @@ void QDECL Com_Error( int code, const char *fmt, ... ) {
 		com_errorEntered = qfalse;
 		longjmp (abortframe, -1);
 	} else if (code == ERR_DROP) {
-		wii_diag("Com_Error ERR_DROP: %s\n", com_errorMessage);
+		wii_diag_sync("Com_Error ERR_DROP: %s\n", com_errorMessage);
 		Com_Printf ("********************\nERROR: %s\n********************\n", com_errorMessage);
 		VM_Forced_Unload_Start();
 		SV_Shutdown (va("Server crashed: %s",  com_errorMessage));
@@ -364,7 +364,7 @@ void QDECL Com_Error( int code, const char *fmt, ... ) {
 		com_errorEntered = qfalse;
 		longjmp (abortframe, -1);
 	} else {
-		wii_diag("Com_Error ERR_FATAL: %s\n", com_errorMessage);
+		wii_diag_sync("Com_Error ERR_FATAL: %s\n", com_errorMessage);
 		VM_Forced_Unload_Start();
 		CL_Shutdown(va("Client fatal crashed: %s", com_errorMessage), qtrue, qtrue);
 		SV_Shutdown(va("Server fatal crashed: %s", com_errorMessage));
@@ -1755,7 +1755,7 @@ void *Hunk_Alloc( int size, ha_pref preference ) {
 	size = (size+31)&~31;
 
 	if ( hunk_low.temp + hunk_high.temp + size > s_hunkTotal ) {
-		wii_diag("Hunk_Alloc FAILED: size=%d low=%d high=%d total=%d\n",
+		wii_diag_sync("Hunk_Alloc FAILED: size=%d low=%d high=%d total=%d\n",
 			size, hunk_low.temp, hunk_high.temp, s_hunkTotal);
 #ifdef HUNK_DEBUG
 		Hunk_Log();

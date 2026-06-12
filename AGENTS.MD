@@ -62,7 +62,7 @@ No debugger available. Build a `debug` target and read SD logs:
 - **Cmdline `+set` limit:** `MAX_CONSOLE_LINES=32`. Keep cmdline slots ≤ 32. Anything that doesn't need to be set before `Com_Init` goes in `Wii_Input_SetCvars()` instead.
 - **`-DWII_INCLUDE_NET`:** only add to port-layer files (`code/sys/`, `code/audio/`, etc.) and the explicit `net_ip.o` rule. Never to vendored ioQ3 source — `huffman.c`'s static `send()` collides with BSD socket `send()`.
 - **`r_fastsky 1`:** never use on Wii — it silently kills all portal/mirror rendering via an early-out in `R_MirrorViewBySurface`.
-- **`com_soundMegs`:** never lower below 4 for Q3/OA — values of 1 or 2 cause choppy audio and frame drops.
+- **`com_soundMegs`:** all flavors intentionally use `2` now. ADPCM 4:1 sound storage keeps the working set inside the smaller pool while freeing sbrk for QVM/JIT and map loads.
 - **`MAX_RELIABLE_COMMANDS`:** keep at stock 64. Lowering it broke connecting to servers with custom content.
 - **`MAX_RAW_SAMPLES`:** keep at stock 16384. 4096 starves the RoQ cinematic decoder → crunchy audio.
 - **`Sys_Milliseconds` base subtraction** (`wii_sys.c`): captures `gettime()` on first call and subtracts it before casting to `int`. Removing it causes integer overflow → negative return → permanent black-screen hang.
@@ -70,7 +70,7 @@ No debugger available. Build a `debug` target and read SD logs:
 - **Shutdown FS ordering:** SD writes during shutdown must happen in `IN_Shutdown` (called while FS is alive), not `Sys_Quit` (called after `FS_Shutdown`).
 - **Exit:** use `exit(0)` to return to HBC. Never `SYS_ResetSystem` — that goes to the Wii system menu.
 - **OpenGX patches** in `libs/opengx/` are load-bearing (depth range, viewport Y-flip, 2D projection origin). If you re-vendor OpenGX from upstream, re-apply them. Never add an `fb_height` field back to OpenGX — it was tried and made icons disappear.
-- **Memory budget:** hunk is ~32 MB (MEM2 bump), zone 8 MB (sbrk), sound ~12.6 MB (sbrk). TA uses a dynamic bump formula (`min(total − 15 MB, 40 MB)`). Read `wii_sys.c:Wii_MEM2_Init` before changing any `*Megs` constant.
+- **Memory budget:** hunk is ~32 MB (MEM2 bump), zone 8 MB (sbrk), sound ~6.3 MB (sbrk, `com_soundMegs 2`). TA uses a dynamic bump formula (`min(total − 18 MB, 40 MB)`). Read `wii_sys.c:Wii_MEM2_Init` before changing any `*Megs` constant.
 - **QVM JIT (`WII_VM_NATIVE=1`):** works but gives no FPS gain — the bottleneck is the OpenGX→GX render backend (`bk`), not VM execution. Don't chase this.
 - **`vm.c` power-of-2 rounding:** the rounding loop sets only `dataMask`; `dataAlloc` uses the real unrounded size. This saves several MB for TA. Never revert it.
 - **Button label tables in `cl_keys.c`** are parallel arrays to the button maps in `wii_input.c`. If you reorder the button maps, update the label tables to match.

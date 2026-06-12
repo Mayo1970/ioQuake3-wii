@@ -192,19 +192,26 @@ static void InitOpenGL( void )
 	
 	if ( glConfig.vidWidth == 0 )
 	{
-		GLint		temp;
-		
 		GLimp_Init( qtrue );
 
-		// OpenGL driver constants
-		qglGetIntegerv( GL_MAX_TEXTURE_SIZE, &temp );
-		glConfig.maxTextureSize = temp;
-
-		// stubbed or broken drivers may have reported 0...
-		if ( glConfig.maxTextureSize <= 0 ) 
+#if defined(WII_NATIVE_GX)
+		/* GX supports up to 1024×1024 textures; don't query GL */
+		glConfig.maxTextureSize = 1024;
+		glConfig.textureEnvAddAvailable = qtrue;
+#else
 		{
-			glConfig.maxTextureSize = 0;
+			GLint temp;
+			// OpenGL driver constants
+			qglGetIntegerv( GL_MAX_TEXTURE_SIZE, &temp );
+			glConfig.maxTextureSize = temp;
+
+			// stubbed or broken drivers may have reported 0...
+			if ( glConfig.maxTextureSize <= 0 )
+			{
+				glConfig.maxTextureSize = 0;
+			}
 		}
+#endif
 	}
 
 	// set default state
@@ -367,18 +374,26 @@ byte *RB_ReadPixels(int x, int y, int width, int height, size_t *offset, int *pa
 	byte *buffer, *bufstart;
 	int padwidth, linelen;
 	GLint packAlign;
-	
+
+#if defined(WII_NATIVE_GX)
+	packAlign = 4;	/* GL default; qglGetIntegerv is a no-op stub */
+#else
 	qglGetIntegerv(GL_PACK_ALIGNMENT, &packAlign);
-	
+#endif
+
 	linelen = width * 3;
 	padwidth = PAD(linelen, packAlign);
-	
+
 	// Allocate a few more bytes so that we can choose an alignment we like
 	buffer = ri.Hunk_AllocateTempMemory(padwidth * height + *offset + packAlign - 1);
-	
+
 	bufstart = PADP((intptr_t) buffer + *offset, packAlign);
+#if defined(WII_NATIVE_GX)
+	GXBE_ReadPixelsRGB(x, y, width, height, padwidth - linelen, bufstart);
+#else
 	qglReadPixels(x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, bufstart);
-	
+#endif
+
 	*offset = bufstart - buffer;
 	*padlen = padwidth - linelen;
 	
@@ -762,8 +777,12 @@ const void *RB_TakeVideoFrameCmd( const void *data )
 	GLint packAlign;
 	
 	cmd = (const videoFrameCommand_t *)data;
-	
+
+#if defined(WII_NATIVE_GX)
+	packAlign = 4;	/* GL default; qglGetIntegerv is a no-op stub */
+#else
 	qglGetIntegerv(GL_PACK_ALIGNMENT, &packAlign);
+#endif
 
 	linelen = cmd->width * 3;
 
@@ -775,9 +794,13 @@ const void *RB_TakeVideoFrameCmd( const void *data )
 	avipadlen = avipadwidth - linelen;
 
 	cBuf = PADP(cmd->captureBuffer, packAlign);
-		
+
+#if defined(WII_NATIVE_GX)
+	GXBE_ReadPixelsRGB(0, 0, cmd->width, cmd->height, padlen, cBuf);
+#else
 	qglReadPixels(0, 0, cmd->width, cmd->height, GL_RGB,
 		GL_UNSIGNED_BYTE, cBuf);
+#endif
 
 	memcount = padwidth * cmd->height;
 
@@ -832,6 +855,9 @@ const void *RB_TakeVideoFrameCmd( const void *data )
 */
 void GL_SetDefaultState( void )
 {
+#if defined(WII_NATIVE_GX)
+	GXBE_SetDefaultState();
+#else
 	qglClearDepth( 1.0f );
 
 	qglCullFace(GL_FRONT);
@@ -870,6 +896,7 @@ void GL_SetDefaultState( void )
 	qglEnable( GL_SCISSOR_TEST );
 	qglDisable( GL_CULL_FACE );
 	qglDisable( GL_BLEND );
+#endif
 }
 
 /*

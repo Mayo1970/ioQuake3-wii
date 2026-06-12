@@ -18,6 +18,10 @@
 #   make all-flavors-240p-pal - Q3A + OA + TA 264p PAL
 #   make clean            - Clean all build dirs
 #
+# Renderer backend: native GX is the default. Legacy OpenGX escape hatch:
+#   make WII_OPENGX=1 dol  (run `make clean` first when switching backends —
+#   enforced by a stamp file in the build dir).
+#
 # Build from devkitPro MSYS2 shell only (sets DEVKITPRO / DEVKITPPC / PATH).
 ifeq ($(strip $(DEVKITPRO)),)
   $(error "Set DEVKITPRO in your environment. export DEVKITPRO=/opt/devkitpro")
@@ -94,14 +98,32 @@ _240P  ?= 0
 _PAL   ?= 0
 # Optional: boot directly into a mod. e.g. make WII_FSGAME=missionpack dol
 WII_FSGAME ?=
-# Optional: run QVMs as native PPC via the JIT instead of the bytecode
-# interpreter. e.g. make WII_VM_NATIVE=1 debug. Default 0 (interpreter).
-# Defines HAVE_VM_COMPILED in wii_platform.h AND sets vm_*=2.
-WII_VM_NATIVE ?= 0
-# Optional: in-game framerate cap. Default 30 (stable on real Wii). Set 60 for
-# Wii U / vWii where the faster CPU may sustain it. e.g. make WII_MAXFPS=60 dol.
-# (Menus/loading always run at 60 regardless — see CL_InMenu in common.c.)
-WII_MAXFPS ?= 30
+# QVM execution: native PPC JIT, DEFAULT since 2026-06-11 (all release and
+# test builds use it). Defines HAVE_VM_COMPILED in wii_platform.h AND sets
+# vm_*=2. Escape hatch: make WII_VM_NATIVE=0 dol builds the bytecode
+# interpreter (needs more hunk — big maps like q3dm11 may OOM there).
+WII_VM_NATIVE ?= 1
+# In-game framerate cap, DEFAULT 60 since 2026-06-11. Set 30 if 60 proves
+# unstable on a target machine: make WII_MAXFPS=30 dol. (Menus/loading always
+# run at 60 regardless — see CL_InMenu in common.c.) NOTE: com_maxfps is
+# CVAR_ARCHIVE — a saved q3config.cfg overrides this on boot.
+WII_MAXFPS ?= 60
+# Renderer backend. Native GX (direct GX calls at the GL1 choke points) is the
+# DEFAULT as of Phase 7 (2026-06-10). Escape hatch for one release:
+# make WII_OPENGX=1 dol builds the legacy OpenGX (GL->GX translation) path;
+# WII_NATIVE_GX=0 is an equivalent override. Both paths share the build dirs —
+# `make clean` is required when switching (enforced by the backend stamp below).
+WII_OPENGX ?= 0
+ifeq ($(WII_OPENGX),1)
+  WII_NATIVE_GX := 0
+else
+  WII_NATIVE_GX ?= 1
+endif
+# Optional: Phase-0 GP-bottleneck profiler on the OpenGX path. Logs GP
+# performance counters (xf_wait_out, fifo_req, etc.) to diag.txt to decide
+# whether native GX can raise FPS before any GX code is written. Requires a
+# debug build for wii_diag output: make WII_GX_PROFILE=1 debug. Default 0.
+WII_GX_PROFILE ?= 0
 
 ifeq ($(_TA),1)
   BUILD          := build_ta
@@ -150,6 +172,32 @@ ifeq ($(WII_VM_NATIVE),1)
   WII_VM_NATIVE_FLAG := -DWII_VM_NATIVE=1
 else
   WII_VM_NATIVE_FLAG :=
+endif
+
+ifeq ($(WII_NATIVE_GX),1)
+  WII_NATIVE_GX_FLAG := -DWII_NATIVE_GX=1
+else
+  WII_NATIVE_GX_FLAG :=
+endif
+
+# Backend stamp guard: the .o files do not depend on the Makefile, so switching
+# renderer backend without `make clean` would silently link a mixed-flag binary
+# (half native GX, half OpenGX). A stamp file in the build dir records which
+# backend it was compiled with; a mismatch aborts with a clean instruction.
+# Only checked for goals that actually compile into $(BUILD).
+GX_BACKEND := $(if $(filter 1,$(WII_NATIVE_GX)),nativegx,opengx)
+ifneq ($(filter all dol,$(if $(MAKECMDGOALS),$(MAKECMDGOALS),all)),)
+  GX_BACKEND_STALE := $(filter-out $(BUILD)/.backend-$(GX_BACKEND),$(wildcard $(BUILD)/.backend-*))
+  ifneq ($(GX_BACKEND_STALE),)
+    $(error $(BUILD)/ was compiled with the other renderer backend ($(patsubst .backend-%,%,$(notdir $(GX_BACKEND_STALE)))). Run 'make clean' before switching between native GX and OpenGX)
+  endif
+  $(shell mkdir -p $(BUILD) && touch $(BUILD)/.backend-$(GX_BACKEND))
+endif
+
+ifeq ($(WII_GX_PROFILE),1)
+  WII_GX_PROFILE_FLAG := -DWII_GX_PROFILE=1
+else
+  WII_GX_PROFILE_FLAG :=
 endif
 
 # In-game framerate cap, stringized for the boot cmdline. Always defined.
@@ -347,6 +395,8 @@ CFLAGS  = $(MACHDEP) \
           $(WII_240P_FLAG) \
           $(WII_FSGAME_FLAG) \
           $(WII_VM_NATIVE_FLAG) \
+          $(WII_NATIVE_GX_FLAG) \
+          $(WII_GX_PROFILE_FLAG) \
           $(WII_MAXFPS_FLAG) \
           -msdata=none -G 0 \
           -DGEKKO -DWII \

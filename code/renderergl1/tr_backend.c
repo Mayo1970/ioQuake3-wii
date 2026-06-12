@@ -57,7 +57,11 @@ void GL_Bind( image_t *image ) {
 			image->frameUsed = tr.frameCount;
 		}
 		glState.currenttextures[glState.currenttmu] = texnum;
+#if defined(WII_NATIVE_GX)
+		GXBE_BindTexnum( glState.currenttmu, texnum );
+#else
 		qglBindTexture (GL_TEXTURE_2D, texnum);
+#endif
 	}
 }
 
@@ -73,22 +77,36 @@ void GL_SelectTexture( int unit )
 
 	if ( unit == 0 )
 	{
+#if !defined(WII_NATIVE_GX)
 		qglActiveTextureARB( GL_TEXTURE0_ARB );
 		GLimp_LogComment( "glActiveTextureARB( GL_TEXTURE0_ARB )\n" );
 		qglClientActiveTextureARB( GL_TEXTURE0_ARB );
 		GLimp_LogComment( "glClientActiveTextureARB( GL_TEXTURE0_ARB )\n" );
+#else
+		/* Switching back to TMU 0: if we were in multi-tex, end multi-tex mode */
+		if ( gxState.numActiveTMUs == 2 ) {
+			gxState.numActiveTMUs = 1;
+			gxState.boundtex[1]   = -1;
+			gxState.tevDirty      = qtrue;
+		}
+#endif
 	}
 	else if ( unit == 1 )
 	{
+#if !defined(WII_NATIVE_GX)
 		qglActiveTextureARB( GL_TEXTURE1_ARB );
 		GLimp_LogComment( "glActiveTextureARB( GL_TEXTURE1_ARB )\n" );
 		qglClientActiveTextureARB( GL_TEXTURE1_ARB );
 		GLimp_LogComment( "glClientActiveTextureARB( GL_TEXTURE1_ARB )\n" );
+#endif
 	} else {
 		ri.Error( ERR_DROP, "GL_SelectTexture: unit = %i", unit );
 	}
 
 	glState.currenttmu = unit;
+#if defined(WII_NATIVE_GX)
+	gxState.currenttmu = unit;
+#endif
 }
 
 
@@ -109,13 +127,21 @@ void GL_BindMultitexture( image_t *image0, GLuint env0, image_t *image1, GLuint 
 		GL_SelectTexture( 1 );
 		image1->frameUsed = tr.frameCount;
 		glState.currenttextures[1] = texnum1;
+#if defined(WII_NATIVE_GX)
+		GXBE_BindTexnum( 1, texnum1 );
+#else
 		qglBindTexture( GL_TEXTURE_2D, texnum1 );
+#endif
 	}
 	if ( glState.currenttextures[0] != texnum0 ) {
 		GL_SelectTexture( 0 );
 		image0->frameUsed = tr.frameCount;
 		glState.currenttextures[0] = texnum0;
+#if defined(WII_NATIVE_GX)
+		GXBE_BindTexnum( 0, texnum0 );
+#else
 		qglBindTexture( GL_TEXTURE_2D, texnum0 );
+#endif
 	}
 }
 
@@ -130,11 +156,14 @@ void GL_Cull( int cullType ) {
 
 	glState.faceCulling = cullType;
 
-	if ( cullType == CT_TWO_SIDED ) 
+#if defined(WII_NATIVE_GX)
+	GXBE_GL_Cull( cullType );
+#else
+	if ( cullType == CT_TWO_SIDED )
 	{
 		qglDisable( GL_CULL_FACE );
-	} 
-	else 
+	}
+	else
 	{
 		qboolean cullFront;
 		qglEnable( GL_CULL_FACE );
@@ -147,6 +176,7 @@ void GL_Cull( int cullType ) {
 
 		qglCullFace( cullFront ? GL_FRONT : GL_BACK );
 	}
+#endif
 }
 
 /*
@@ -161,7 +191,9 @@ void GL_TexEnv( int env )
 
 	glState.texEnv[glState.currenttmu] = env;
 
-
+#if defined(WII_NATIVE_GX)
+	GXBE_GL_TexEnv( glState.currenttmu, env );
+#else
 	switch ( env )
 	{
 	case GL_MODULATE:
@@ -180,6 +212,7 @@ void GL_TexEnv( int env )
 		ri.Error( ERR_DROP, "GL_TexEnv: invalid env '%d' passed", env );
 		break;
 	}
+#endif
 }
 
 /*
@@ -190,6 +223,12 @@ void GL_TexEnv( int env )
 */
 void GL_State( unsigned long stateBits )
 {
+#if defined(WII_NATIVE_GX)
+	GXBE_GL_State( stateBits );
+	return;
+#endif
+
+	{
 	unsigned long diff = stateBits ^ glState.glStateBits;
 
 	if ( !diff )
@@ -369,6 +408,7 @@ void GL_State( unsigned long stateBits )
 	}
 
 	glState.glStateBits = stateBits;
+	} /* end non-WII_NATIVE_GX block */
 }
 
 
@@ -388,14 +428,42 @@ static void RB_Hyperspace( void ) {
 	}
 
 	c = ( backEnd.refdef.time & 255 ) / 255.0f;
+#if defined(WII_NATIVE_GX)
+	GXBE_Clear( qtrue, qfalse, c, c, c );
+#else
 	qglClearColor( c, c, c, 1 );
 	qglClear( GL_COLOR_BUFFER_BIT );
+#endif
 
 	backEnd.isHyperspace = qtrue;
 }
 
 
 static void SetViewportAndScissor( void ) {
+#if defined(WII_NATIVE_GX)
+	GXBE_LoadProjectionGL( backEnd.viewParms.projectionMatrix );
+
+	/* viewportY is stored top-down on GEKKO (tr_scene.c) and GX viewport/
+	 * scissor are also top-down, so both pass through directly — no flip,
+	 * no OpenGX back-solve. Scissor is clamped to the screen (overhanging
+	 * UI rects like Player Settings y=-40 h=560). */
+	{
+		int vx  = backEnd.viewParms.viewportX;
+		int vy  = backEnd.viewParms.viewportY;
+		int vw  = backEnd.viewParms.viewportWidth;
+		int vh  = backEnd.viewParms.viewportHeight;
+
+		int sx  = vx < 0 ? 0 : vx;
+		int sy  = vy < 0 ? 0 : vy;
+		int sx2 = vx + vw > glConfig.vidWidth  ? glConfig.vidWidth  : vx + vw;
+		int sy2 = vy + vh > glConfig.vidHeight ? glConfig.vidHeight : vy + vh;
+		int sw  = sx2 - sx;  if ( sw < 0 ) sw = 0;
+		int sh  = sy2 - sy;  if ( sh < 0 ) sh = 0;
+
+		GXBE_SetViewport( vx, vy, vw, vh );
+		GXBE_SetScissor( sx, sy, sw, sh );
+	}
+#else
 	qglMatrixMode(GL_PROJECTION);
 	qglLoadMatrixf( backEnd.viewParms.projectionMatrix );
 	qglMatrixMode(GL_MODELVIEW);
@@ -426,6 +494,7 @@ static void SetViewportAndScissor( void ) {
 	qglScissor( backEnd.viewParms.viewportX, backEnd.viewParms.viewportY,
 		backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
 #endif
+#endif /* WII_NATIVE_GX */
 }
 
 /*
@@ -459,6 +528,12 @@ void RB_BeginDrawingView (void) {
 
 	// ensures that depth writes are enabled for the depth clear
 	GL_State( GLS_DEFAULT );
+#if defined(WII_NATIVE_GX)
+	(void)clearBits;
+	/* depth always; color only for r_fastsky (no stencil on GX) */
+	GXBE_Clear( ( r_fastsky->integer && !( backEnd.refdef.rdflags & RDF_NOWORLDMODEL ) ),
+	            qtrue, 0.0f, 0.0f, 0.0f );
+#else
 	// clear relevant buffers
 	clearBits = GL_DEPTH_BUFFER_BIT;
 
@@ -476,6 +551,7 @@ void RB_BeginDrawingView (void) {
 #endif
 	}
 	qglClear( clearBits );
+#endif /* WII_NATIVE_GX */
 
 	if ( ( backEnd.refdef.rdflags & RDF_HYPERSPACE ) )
 	{
@@ -494,6 +570,35 @@ void RB_BeginDrawingView (void) {
 
 	// clip to the plane of the portal
 	if ( backEnd.viewParms.isPortal ) {
+#if defined(WII_NATIVE_GX)
+		/* GX has no user clip planes — clip via oblique near-plane
+		 * projection instead (replaces the projection loaded in
+		 * SetViewportAndScissor for this portal view only; the next
+		 * view reloads the plain one). The eye-space plane is exactly
+		 * what GL would store from qglClipPlane under MV = s_flipMatrix:
+		 * p_eye = flip^-T * plane2, and the flip is orthonormal so
+		 * flip^-T == flip => p_eye = (-p2[1], p2[2], -p2[0], p2[3]). */
+		float	plane[4];
+		float	plane2[4];
+		float	eyePlane[4];
+
+		plane[0] = backEnd.viewParms.portalPlane.normal[0];
+		plane[1] = backEnd.viewParms.portalPlane.normal[1];
+		plane[2] = backEnd.viewParms.portalPlane.normal[2];
+		plane[3] = backEnd.viewParms.portalPlane.dist;
+
+		plane2[0] = DotProduct (backEnd.viewParms.or.axis[0], plane);
+		plane2[1] = DotProduct (backEnd.viewParms.or.axis[1], plane);
+		plane2[2] = DotProduct (backEnd.viewParms.or.axis[2], plane);
+		plane2[3] = DotProduct (plane, backEnd.viewParms.or.origin) - plane[3];
+
+		eyePlane[0] = -plane2[1];
+		eyePlane[1] =  plane2[2];
+		eyePlane[2] = -plane2[0];
+		eyePlane[3] =  plane2[3];
+
+		GXBE_LoadProjectionObliqueGL( backEnd.viewParms.projectionMatrix, eyePlane );
+#else
 		float	plane[4];
 		GLdouble	plane2[4];
 
@@ -510,8 +615,11 @@ void RB_BeginDrawingView (void) {
 		qglLoadMatrixf( s_flipMatrix );
 		qglClipPlane (GL_CLIP_PLANE0, plane2);
 		qglEnable (GL_CLIP_PLANE0);
+#endif /* WII_NATIVE_GX */
 	} else {
+#if !defined(WII_NATIVE_GX)
 		qglDisable (GL_CLIP_PLANE0);
+#endif
 	}
 }
 
@@ -628,7 +736,11 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 				R_TransformDlights( backEnd.refdef.num_dlights, backEnd.refdef.dlights, &backEnd.or );
 			}
 
+#if defined(WII_NATIVE_GX)
+			GXBE_LoadModelviewGL( backEnd.or.modelMatrix );
+#else
 			qglLoadMatrixf( backEnd.or.modelMatrix );
+#endif
 
 			//
 			// change depthrange. Also change projection matrix so first person weapon does not look like coming
@@ -696,7 +808,11 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	}
 
 	// go back to the world modelview matrix
+#if defined(WII_NATIVE_GX)
+	GXBE_LoadModelviewGL( backEnd.viewParms.world.modelMatrix );
+#else
 	qglLoadMatrixf( backEnd.viewParms.world.modelMatrix );
+#endif
 	if ( depthRange ) {
 		qglDepthRange (0, 1);
 	}
@@ -730,6 +846,12 @@ RB_SetGL2D
 void	RB_SetGL2D (void) {
 	backEnd.projection2D = qtrue;
 
+#if defined(WII_NATIVE_GX)
+	GXBE_SetViewport( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
+	GXBE_SetScissor( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
+	GXBE_LoadOrtho2D( glConfig.vidWidth, glConfig.vidHeight );
+	GXBE_LoadIdentityModelview();
+#else
 	// set 2D virtual screen size
 	qglViewport( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
 	qglScissor( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
@@ -738,6 +860,7 @@ void	RB_SetGL2D (void) {
 	qglOrtho (0, glConfig.vidWidth, glConfig.vidHeight, 0, 0, 1);
 	qglMatrixMode(GL_MODELVIEW);
     qglLoadIdentity ();
+#endif
 
 	GL_State( GLS_DEPTHTEST_DISABLE |
 			  GLS_SRCBLEND_SRC_ALPHA |
@@ -801,6 +924,26 @@ void RE_StretchRaw (int x, int y, int w, int h, int cols, int rows, const byte *
 
 	RB_SetGL2D();
 
+#if defined(WII_NATIVE_GX)
+	{
+		byte c = (byte)( tr.identityLight * 255.0f );
+		float s0 = 0.5f / cols, s1 = ( cols - 0.5f ) / cols;
+		float t0 = 0.5f / rows, t1 = ( rows - 0.5f ) / rows;
+		float st[2], xyz[3];
+
+		xyz[2] = 0.0f;
+		GXBE_ImmediateBegin( GL_QUADS, 4 );
+		st[0] = s0; st[1] = t0; xyz[0] = x;     xyz[1] = y;
+		GXBE_ImmediateTexVertex( st, xyz, c, c, c, 255 );
+		st[0] = s1; st[1] = t0; xyz[0] = x + w; xyz[1] = y;
+		GXBE_ImmediateTexVertex( st, xyz, c, c, c, 255 );
+		st[0] = s1; st[1] = t1; xyz[0] = x + w; xyz[1] = y + h;
+		GXBE_ImmediateTexVertex( st, xyz, c, c, c, 255 );
+		st[0] = s0; st[1] = t1; xyz[0] = x;     xyz[1] = y + h;
+		GXBE_ImmediateTexVertex( st, xyz, c, c, c, 255 );
+		GXBE_ImmediateEnd();
+	}
+#else
 	qglColor3f( tr.identityLight, tr.identityLight, tr.identityLight );
 
 	qglBegin (GL_QUADS);
@@ -813,6 +956,7 @@ void RE_StretchRaw (int x, int y, int w, int h, int cols, int rows, const byte *
 	qglTexCoord2f ( 0.5f / cols, ( rows - 0.5f ) / rows );
 	qglVertex2f (x, y+h);
 	qglEnd ();
+#endif /* WII_NATIVE_GX */
 }
 
 void RE_UploadCinematic (int w, int h, int cols, int rows, const byte *data, int client, qboolean dirty) {
@@ -823,16 +967,28 @@ void RE_UploadCinematic (int w, int h, int cols, int rows, const byte *data, int
 	if ( cols != tr.scratchImage[client]->width || rows != tr.scratchImage[client]->height ) {
 		tr.scratchImage[client]->width = tr.scratchImage[client]->uploadWidth = cols;
 		tr.scratchImage[client]->height = tr.scratchImage[client]->uploadHeight = rows;
+#if defined(WII_NATIVE_GX)
+		/* RoQ frames are opaque -> GL_RGB8 selects GX_TF_RGB565.
+		 * No mipmaps: scratch images are redrawn every frame, and
+		 * mipmap=qfalse guarantees `data` (const here) is not mutated. */
+		GXBE_Upload32( (unsigned *)data, cols, rows, GL_RGB8,
+		               (int)tr.scratchImage[client]->texnum, GL_CLAMP, qfalse );
+#else
 		qglTexImage2D( GL_TEXTURE_2D, 0, GL_RGB8, cols, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, data );
 		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
 		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
 		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, haveClampToEdge ? GL_CLAMP_TO_EDGE : GL_CLAMP );
 		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, haveClampToEdge ? GL_CLAMP_TO_EDGE : GL_CLAMP );
+#endif
 	} else {
 		if (dirty) {
 			// otherwise, just subimage upload it so that drivers can tell we are going to be changing
 			// it and don't try and do a texture compression
+#if defined(WII_NATIVE_GX)
+			GXBE_TexSubImage2D( (int)tr.scratchImage[client]->texnum, cols, rows, data );
+#else
 			qglTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, cols, rows, GL_RGBA, GL_UNSIGNED_BYTE, data );
+#endif
 		}
 	}
 }
@@ -1016,9 +1172,14 @@ void RB_ShowImages( void ) {
 		RB_SetGL2D();
 	}
 
+#if defined(WII_NATIVE_GX)
+	GXBE_Clear( qtrue, qfalse, 0.0f, 0.0f, 0.0f );
+	GXBE_Finish();
+#else
 	qglClear( GL_COLOR_BUFFER_BIT );
 
 	qglFinish();
+#endif
 
 	start = ri.Milliseconds();
 
@@ -1037,6 +1198,22 @@ void RB_ShowImages( void ) {
 		}
 
 		GL_Bind( image );
+#if defined(WII_NATIVE_GX)
+		{
+			float st[2], xyz[3];
+			xyz[2] = 0.0f;
+			GXBE_ImmediateBegin( GL_QUADS, 4 );
+			st[0] = 0; st[1] = 0; xyz[0] = x;     xyz[1] = y;
+			GXBE_ImmediateTexVertex( st, xyz, 255, 255, 255, 255 );
+			st[0] = 1; st[1] = 0; xyz[0] = x + w; xyz[1] = y;
+			GXBE_ImmediateTexVertex( st, xyz, 255, 255, 255, 255 );
+			st[0] = 1; st[1] = 1; xyz[0] = x + w; xyz[1] = y + h;
+			GXBE_ImmediateTexVertex( st, xyz, 255, 255, 255, 255 );
+			st[0] = 0; st[1] = 1; xyz[0] = x;     xyz[1] = y + h;
+			GXBE_ImmediateTexVertex( st, xyz, 255, 255, 255, 255 );
+			GXBE_ImmediateEnd();
+		}
+#else
 		qglBegin (GL_QUADS);
 		qglTexCoord2f( 0, 0 );
 		qglVertex2f( x, y );
@@ -1047,9 +1224,14 @@ void RB_ShowImages( void ) {
 		qglTexCoord2f( 0, 1 );
 		qglVertex2f( x, y + h );
 		qglEnd();
+#endif
 	}
 
+#if defined(WII_NATIVE_GX)
+	GXBE_Finish();
+#else
 	qglFinish();
+#endif
 
 	end = ri.Milliseconds();
 	ri.Printf( PRINT_ALL, "%i msec to draw all images\n", end - start );
@@ -1088,7 +1270,11 @@ const void *RB_ClearDepth(const void *data)
 	if (r_showImages->integer)
 		RB_ShowImages();
 
+#if defined(WII_NATIVE_GX)
+	GXBE_Clear( qfalse, qtrue, 0.0f, 0.0f, 0.0f );
+#else
 	qglClear(GL_DEPTH_BUFFER_BIT);
+#endif
 	
 	return (const void *)(cmd + 1);
 }
@@ -1117,6 +1303,14 @@ const void	*RB_SwapBuffers( const void *data ) {
 	// we measure overdraw by reading back the stencil buffer and
 	// counting up the number of increments that have happened
 	if ( r_measureOverdraw->integer ) {
+#if defined(WII_NATIVE_GX)
+		/* No stencil buffer on GX (RGB8_Z24 EFB) — nothing to read back */
+		static qboolean s_warned;
+		if ( !s_warned ) {
+			s_warned = qtrue;
+			ri.Printf( PRINT_WARNING, "r_measureOverdraw not supported on native GX (no stencil)\n" );
+		}
+#else
 		int i;
 		long sum = 0;
 		unsigned char *stencilReadback;
@@ -1130,6 +1324,7 @@ const void	*RB_SwapBuffers( const void *data ) {
 
 		backEnd.pc.c_overDraw += sum;
 		ri.Hunk_FreeTempMemory( stencilReadback );
+#endif
 	}
 
 

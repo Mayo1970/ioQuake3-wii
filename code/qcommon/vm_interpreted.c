@@ -164,6 +164,46 @@ void VM_StackTrace( vm_t *vm, int programCounter, int programStack ) {
 
 /*
 ====================
+VM_OperandBytes
+
+Operand width for the opcodes that aren't a single byte. Shared by the
+sizing pass and the expansion pass in VM_PrepareInterpreter so the two
+can never disagree about how many ints the expanded code needs.
+====================
+*/
+static int VM_OperandBytes( int op ) {
+	switch ( op ) {
+	case OP_ENTER:
+	case OP_CONST:
+	case OP_LOCAL:
+	case OP_LEAVE:
+	case OP_EQ:
+	case OP_NE:
+	case OP_LTI:
+	case OP_LEI:
+	case OP_GTI:
+	case OP_GEI:
+	case OP_LTU:
+	case OP_LEU:
+	case OP_GTU:
+	case OP_GEU:
+	case OP_EQF:
+	case OP_NEF:
+	case OP_LTF:
+	case OP_LEF:
+	case OP_GTF:
+	case OP_GEF:
+	case OP_BLOCK_COPY:
+		return 4;
+	case OP_ARG:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+/*
+====================
 VM_PrepareInterpreter
 ====================
 */
@@ -177,14 +217,50 @@ void VM_PrepareInterpreter( vm_t *vm, vmHeader_t *header ) {
 
 	wii_diag("VM_PrepareInterpreter: %s codeLen=%d instrCount=%d\n",
 		vm->name, vm->codeLength, header->instructionCount);
-	vm->codeBase = Hunk_Alloc( vm->codeLength*4, h_high );			// we're now int aligned
+
+	code = (byte *)header + header->codeOffset;
+
+	// sizing pass: count the ints the expanded code needs, so the hunk
+	// allocation is exact instead of the worst case codeLength*4 (which
+	// assumes every code byte expands to an int — ~2x what real QVMs use,
+	// several MB across the three VMs on the 32 MB Wii hunk)
+	int_pc = byte_pc = 0;
+	instruction = 0;
+	while ( instruction < header->instructionCount ) {
+		if ( byte_pc >= header->codeLength )
+			Com_Error(ERR_DROP, "VM_PrepareInterpreter: pc >= header->codeLength");
+		op = (int)code[ byte_pc ];
+
+		byte_pc++;
+		int_pc++;
+
+		switch ( VM_OperandBytes( op ) ) {
+		case 4:
+			if ( byte_pc + 4 > header->codeLength )
+				Com_Error(ERR_DROP, "VM_PrepareInterpreter: operand past codeLength");
+			byte_pc += 4;
+			int_pc++;
+			break;
+		case 1:
+			if ( byte_pc >= header->codeLength )
+				Com_Error(ERR_DROP, "VM_PrepareInterpreter: operand past codeLength");
+			byte_pc++;
+			int_pc++;
+			break;
+		default:
+			break;
+		}
+
+		instruction++;
+	}
+
+	vm->codeBase = Hunk_Alloc( int_pc*4, h_high );			// we're now int aligned
 //	memcpy( vm->codeBase, (byte *)header + header->codeOffset, vm->codeLength );
 
 	// we don't need to translate the instructions, but we still need
 	// to find each instructions starting point for jumps
 	int_pc = byte_pc = 0;
 	instruction = 0;
-	code = (byte *)header + header->codeOffset;
 	codeBase = (int *)vm->codeBase;
 
 	// Copy and expand instructions to words while building instruction table
@@ -192,42 +268,25 @@ void VM_PrepareInterpreter( vm_t *vm, vmHeader_t *header ) {
 		vm->instructionPointers[ instruction ] = int_pc;
 		instruction++;
 
+		if ( byte_pc >= header->codeLength )
+			Com_Error(ERR_DROP, "VM_PrepareInterpreter: pc >= header->codeLength");
 		op = (int)code[ byte_pc ];
 		codeBase[int_pc] = op;
-		if(byte_pc > header->codeLength)
-			Com_Error(ERR_DROP, "VM_PrepareInterpreter: pc > header->codeLength");
 
 		byte_pc++;
 		int_pc++;
 
-		// these are the only opcodes that aren't a single byte
-		switch ( op ) {
-		case OP_ENTER:
-		case OP_CONST:
-		case OP_LOCAL:
-		case OP_LEAVE:
-		case OP_EQ:
-		case OP_NE:
-		case OP_LTI:
-		case OP_LEI:
-		case OP_GTI:
-		case OP_GEI:
-		case OP_LTU:
-		case OP_LEU:
-		case OP_GTU:
-		case OP_GEU:
-		case OP_EQF:
-		case OP_NEF:
-		case OP_LTF:
-		case OP_LEF:
-		case OP_GTF:
-		case OP_GEF:
-		case OP_BLOCK_COPY:
+		switch ( VM_OperandBytes( op ) ) {
+		case 4:
+			if ( byte_pc + 4 > header->codeLength )
+				Com_Error(ERR_DROP, "VM_PrepareInterpreter: operand past codeLength");
 			codeBase[int_pc] = loadWord(&code[byte_pc]);
 			byte_pc += 4;
 			int_pc++;
 			break;
-		case OP_ARG:
+		case 1:
+			if ( byte_pc >= header->codeLength )
+				Com_Error(ERR_DROP, "VM_PrepareInterpreter: operand past codeLength");
 			codeBase[int_pc] = (int)code[byte_pc];
 			byte_pc++;
 			int_pc++;
@@ -237,6 +296,13 @@ void VM_PrepareInterpreter( vm_t *vm, vmHeader_t *header ) {
 		}
 
 	}
+
+	// the program counter bounds checks in VM_CallInterpreted compare int
+	// indices against codeLength; with the exact-size buffer the emitted
+	// int count is the correct bound (the old codeLength*4 buffer made the
+	// byte length coincide with the buffer's int capacity)
+	vm->codeLength = int_pc;
+
 	wii_diag("VM_PrepareInterpreter: %s pass1 done int_pc=%d\n", vm->name, int_pc);
 	int_pc = 0;
 	instruction = 0;

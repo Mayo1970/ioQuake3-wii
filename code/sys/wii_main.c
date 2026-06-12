@@ -1,5 +1,3 @@
-/* ioquake3-wii: Wii platform entry point */
-
 static unsigned char s_mainStack[512 * 1024] __attribute__((aligned(8)));
 void *__ppc_main_sp __attribute__((section(".sdata"))) = &s_mainStack[sizeof(s_mainStack)];
 
@@ -28,11 +26,7 @@ extern refexport_t *GetRefAPI(int apiVersion, refimport_t *rimp);
 static void *xfb = NULL;
 static GXRModeObj *rmode = NULL;
 
-/* Storage device root: "sd:/quake3" on a normal Wii, "usb:/quake3" on a Wii
- * Mini (no SD slot, USB-only) or any USB-booted setup. Detected in
- * Wii_MountSD(); every storage path (fs_basepath/homepath, Sys_Default*Path,
- * qkey, debug logs) uses this instead of a hardcoded "sd:". Defaults to SD so
- * any early reader is sane before detection runs. */
+/* Storage device root: "sd:/quake3" on a normal Wii, "usb:/quake3" on Wii Mini. Detected in Wii_MountSD(). */
 char wii_dev_root[32] = "sd:/quake3";
 
 static void Wii_InitConsole(void)
@@ -53,9 +47,7 @@ static void Wii_InitConsole(void)
 
 static qboolean Wii_FindDataRoot(void)
 {
-    /* SD first (normal Wii), then USB (Wii Mini / USB-booted). chdir() succeeds
-     * only if the device is mounted AND the /quake3 dir exists, so it both
-     * probes and sets the cwd in one step. */
+    /* Try sd: first, then usb: (Wii Mini). chdir() both probes and sets the cwd. */
     static const char *roots[] = { "sd:/quake3", "usb:/quake3" };
     int i;
     for (i = 0; i < (int)(sizeof(roots) / sizeof(roots[0])); i++) {
@@ -71,10 +63,7 @@ static qboolean Wii_MountSD(void)
 {
     int attempt;
 
-    /* Mount whatever FAT device is present. fatInitDefault() returns true once
-     * any default device (SD or USB) mounts. USB mass storage can enumerate a
-     * beat later than SD, so retry until it comes up. A normal Wii's SD mounts
-     * on the first try, so this loop is a no-op there. */
+    /* Retry FAT init: USB enumerates slower than SD, normal Wii mounts first try. */
     for (attempt = 0; attempt < 20; attempt++) {
         if (fatInitDefault())
             break;
@@ -85,9 +74,6 @@ static qboolean Wii_MountSD(void)
         return qfalse;
     }
 
-    /* Find which mounted device actually holds the data (SD on a normal Wii,
-     * USB on a Wii Mini). Retry briefly in case the filesystem settles a beat
-     * after mount. */
     for (attempt = 0; attempt < 10; attempt++) {
         if (Wii_FindDataRoot()) {
 #ifdef WII_DEBUG
@@ -197,11 +183,7 @@ int main(int argc, char *argv[])
         "+set com_maxfps " WII_MAXFPS_STR " "
         "+set pmove_fixed 1 "
         "+set s_khz 22 "
-#if defined(STANDALONETA)
         "+set com_soundMegs 2 "
-#else
-        "+set com_soundMegs 4 "
-#endif
         "+set sv_pure 0 "
         "+set sv_maxclients 8 "
 
@@ -214,11 +196,7 @@ int main(int argc, char *argv[])
         "+set fraglimit 0 "
         "+set timelimit 0 "
         "+set com_logfile 2 "
-        /* vm_ui must be set before Com_Init (CL_InitUI runs during Com_Init).
-         * vm_cgame/vm_game are set post-init in Wii_Input_SetCvars().
-         * 1 = VMI_BYTECODE (interpreter); 2 = VMI_COMPILED (native PPC JIT).
-         * The JIT only actually engages if HAVE_VM_COMPILED is also defined
-         * (see wii_platform.h, gated on WII_VM_NATIVE). */
+        /* vm_ui must be set before Com_Init; vm_cgame/vm_game set post-init in Wii_Input_SetCvars(). */
 #if defined(WII_VM_NATIVE)
         "+set vm_ui 2"
 #else
@@ -255,7 +233,7 @@ int main(int argc, char *argv[])
     boot_mark("Calling GX init");
     WII_DBG_PRINTF("[wii] Calling Wii_GX_Init...\n");
 
-    /* GX must be up before Com_Init — it starts rendering immediately */
+    /* GX must be up before Com_Init — renderer starts immediately. */
     Wii_GX_Init();
     WII_DBG_PRINTF("[wii] GX init done\n");
     boot_mark("GX init done");
@@ -279,11 +257,7 @@ int main(int argc, char *argv[])
     while (1) {
         Com_Frame();
 
-        /* Input is polled inside Com_Frame() via IN_Frame() -> Wii_Input_Frame(),
-         * which also latches the HOME-button state. Check that latch here instead
-         * of calling Wii_Input_Frame() a second time: the old direct call ran a
-         * full controller scan twice per frame and double-applied every
-         * relative-motion input (USB mouse, Wiimote IR body-turn, menu cursor). */
+        /* Check HOME latch set by Wii_Input_Frame() inside Com_Frame() — don't poll again. */
         if (Wii_Input_HomePressed()) {
             Com_Quit_f();
             break;

@@ -191,10 +191,14 @@ void R_DrawElements( int numIndexes, const glIndex_t *indexes ) {
 			}
 		}
 #endif
+#if defined(WII_NATIVE_GX)
+		GXBE_DrawTess( numIndexes, indexes );
+#else
 		qglDrawElements( GL_TRIANGLES,
 						numIndexes,
 						GL_INDEX_TYPE,
 						indexes );
+#endif
 		return;
 	}
 
@@ -220,7 +224,15 @@ SURFACE SHADERS
 =============================================================
 */
 
+#if defined(WII_NATIVE_GX)
+/* GX_SetArray pointers must be 32-byte aligned. The per-vertex sub-arrays
+ * within shaderCommands_t (xyz stride-16, texCoords, colors) also start at
+ * offsets that are multiples of 32 bytes from the struct base, so aligning
+ * the struct itself satisfies the GX requirement for all of them. */
+shaderCommands_t	tess __attribute__((aligned(32)));
+#else
 shaderCommands_t	tess;
+#endif
 static qboolean	setArraysOnce;
 
 /*

@@ -1,5 +1,3 @@
-/* Wii renderer glue: ri global, pre-boot stub, two-phase GetRefAPI. */
-
 #undef COLOR_BLACK
 #undef COLOR_RED
 #undef COLOR_GREEN

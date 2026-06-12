@@ -11,6 +11,10 @@ build/
 # Vendored prebuilt OpenGX library is tracked source — keep it in the repo
 !libs/opengx/lib/libopengx.a
 
+# WiiU gamepad stuff
+!libs/wiidrc/lib/libwiidrc.a
+
+
 # Copyrighted Quake III Arena data — never commit
 *.pk3
 qkey

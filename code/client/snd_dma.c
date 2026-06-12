@@ -353,7 +353,21 @@ Creates a default buzz sound if the file can't be loaded
 sfxHandle_t	S_Base_RegisterSound( const char *name, qboolean compressed ) {
 	sfx_t	*sfx;
 
+#if defined(GEKKO)
+	/* Store mono sounds ADPCM-compressed (4:1, soundCompressionMethod 1).
+	   The Wii sound pool is com_soundMegs=2 (~6.3 MB), and a typical bot
+	   match's registered sound set exceeds it raw, so
+	   S_FreeOldestSound eviction kicks in and every replay of an evicted
+	   sound does a synchronous SD read + resample MID-GAME (S_memoryLoad in
+	   S_Base_StartSound) — a visible microstutter each time. ADPCM puts the
+	   whole set comfortably inside the pool, so after first load nothing is
+	   ever evicted or re-read in-game. Stereo sounds are left raw by
+	   S_LoadSound's channels==1 check. Decode at mix time goes through
+	   sfxScratchBuffer (guaranteed non-NULL whenever the pool exists). */
+	compressed = qtrue;
+#else
 	compressed = qfalse;
+#endif
 	if (!s_soundStarted) {
 		return 0;
 	}

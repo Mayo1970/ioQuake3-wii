@@ -308,6 +308,14 @@ void S_AdpcmEncodeSound( sfx_t *sfx, short *samples ) {
 		}
 
 		newchunk = SND_malloc();
+		if (newchunk == NULL) {
+			/* pool exhausted beyond what eviction can recover — truncate
+			   the sound instead of storing through NULL */
+			Com_Printf(S_COLOR_YELLOW "WARNING: sound pool exhausted, truncating %s\n",
+			           sfx->soundName);
+			sfx->soundLength = inOffset;
+			return;
+		}
 		if (sfx->soundData == NULL) {
 			sfx->soundData = newchunk;
 		} else if (chunk != NULL) {

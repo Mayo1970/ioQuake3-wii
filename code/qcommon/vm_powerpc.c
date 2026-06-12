@@ -1151,24 +1151,91 @@ static clock_t time_total_vm = 0;
 /*
  * vm_powerpc uses large quantities of memory during compilation,
  * Z_Malloc memory may not be enough for some big qvm files
+ *
+ * Wii: the transients are hundreds of thousands of 24-48 byte nodes
+ * (source_instruction_t / dest_instruction_t / symbolic_jump_t). Individual
+ * malloc()s pay 8-16 bytes of allocator overhead per node plus heap
+ * fragmentation — enough to exhaust the tight sbrk heap on large QVMs
+ * (OpenArena's 227k-instruction qagame died ~60% through the compile while
+ * Q3's ~130k-instruction one fit). All of them are freed together at the end
+ * of PPC_ComputeCode, so serve them from a chunked bump arena instead and
+ * free the chunks wholesale: zero per-node overhead, zero fragmentation.
+ * PPC_Free on arena nodes is a no-op; the reset at the top of VM_Compile
+ * also reclaims the chunks of a compile that aborted through Com_Error.
  */
 
-#define VM_SYSTEM_MALLOC
-#ifdef VM_SYSTEM_MALLOC
-static inline void *
+#define PPC_ARENA_CHUNK ( 512 * 1024 )
+
+typedef struct ppc_arena_chunk_s {
+	struct ppc_arena_chunk_s *next;
+	size_t used;
+	size_t cap;
+	/* node data follows */
+} ppc_arena_chunk_t;
+
+static ppc_arena_chunk_t *ppc_arena = NULL;
+static void *ppc_src_freelist = NULL;
+
+static void *
 PPC_Malloc( size_t size )
 {
-	void *mem = malloc( size );
-	if ( ! mem )
-		DIE( "Not enough memory" );
+	void *p;
 
-	return mem;
+	size = ( size + 7 ) & ~(size_t)7;
+	if ( !ppc_arena || ppc_arena->used + size > ppc_arena->cap ) {
+		size_t cap = ( size > PPC_ARENA_CHUNK ) ? size : PPC_ARENA_CHUNK;
+		ppc_arena_chunk_t *c = malloc( sizeof( *c ) + cap );
+		if ( !c ) {
+			wii_diag_sync("PPC_Malloc: chunk malloc failed (cap=%u)\n", (unsigned)cap);
+			DIE( "Not enough memory" );
+		}
+		c->next = ppc_arena;
+		c->used = 0;
+		c->cap = cap;
+		ppc_arena = c;
+	}
+	p = (unsigned char *)( ppc_arena + 1 ) + ppc_arena->used;
+	ppc_arena->used += size;
+	return p;
 }
-# define PPC_Free free
-#else
-# define PPC_Malloc Z_Malloc
-# define PPC_Free Z_Free
-#endif
+
+/* arena nodes are freed wholesale by PPC_ArenaReset */
+#define PPC_Free( p ) ( (void)( p ) )
+
+static void
+PPC_ArenaReset( void )
+{
+	while ( ppc_arena ) {
+		ppc_arena_chunk_t *next = ppc_arena->next;
+		free( ppc_arena );
+		ppc_arena = next;
+	}
+	ppc_src_freelist = NULL;
+}
+
+/*
+ * source_instruction_t nodes are allocated per bytecode instruction and freed
+ * after each function is compiled. Recycle them through a free list so the
+ * whole program needs only max-function-size worth of nodes, like the old
+ * malloc free list did — without it the arena would hold all ~227k at once.
+ */
+static void *
+PPC_AllocSrc( size_t size )
+{
+	if ( ppc_src_freelist ) {
+		void *p = ppc_src_freelist;
+		ppc_src_freelist = *(void **)p;
+		return p;
+	}
+	return PPC_Malloc( size );
+}
+
+static void
+PPC_FreeSrc( void *p )
+{
+	*(void **)p = ppc_src_freelist;
+	ppc_src_freelist = p;
+}
 
 /*
  * optimizations:
@@ -2855,7 +2922,7 @@ VM_CompileFunction( source_instruction_t * const i_first )
 		while ( i_next ) {
 			i_now = i_next;
 			i_next = i_now->next;
-			PPC_Free( i_now );
+			PPC_FreeSrc( i_now );
 		}
 	}
 }
@@ -2912,10 +2979,15 @@ PPC_ComputeCode( vm_t *vm )
 		+ sizeof( unsigned int ) * data_acc
 		+ sizeof( ppc_instruction_t ) * codeInstructions;
 
+	wii_diag_sync("PPC_ComputeCode: %s codeLength=%u, calling mmap\n",
+		vm->name, (unsigned)codeLength);
+
 	// get the memory for the generated code, smarter ppcs need the
 	// mem to be marked as executable (whill change later)
 	unsigned char *dataAndCode = mmap( NULL, codeLength,
 		PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0 );
+
+	wii_diag_sync("PPC_ComputeCode: mmap=%p\n", (void *)dataAndCode);
 
 	if (dataAndCode == MAP_FAILED)
 		DIE( "Not enough memory" );
@@ -3087,9 +3159,15 @@ VM_Compile( vm_t *vm, vmHeader_t *header )
 
 	gettimeofday(&tvstart, NULL);
 
+	wii_diag_sync("VM_Compile: %s enter, instructionCount=%d codeLength=%d\n",
+		vm->name, header->instructionCount, header->codeLength);
+
+	/* reclaim arena chunks from a previous compile that aborted via Com_Error */
+	PPC_ArenaReset();
+
 	PPC_MakeFastMask( vm->dataMask );
 
-	i_first = PPC_Malloc( sizeof( source_instruction_t ) );
+	i_first = PPC_AllocSrc( sizeof( source_instruction_t ) );
 	i_first->next = NULL;
 
 	// realloc instructionPointers with correct size
@@ -3113,6 +3191,9 @@ VM_Compile( vm_t *vm, vmHeader_t *header )
 	{
 		unsigned char op = code[ pc++ ];
 
+		if ( !( i_count & 0xFFFF ) )
+			wii_diag_sync("VM_Compile: %s i_count=%lu\n", vm->name, i_count);
+
 		if ( op == OP_ENTER ) {
 			if ( i_first->next )
 				VM_CompileFunction( i_first );
@@ -3120,7 +3201,7 @@ VM_Compile( vm_t *vm, vmHeader_t *header )
 			i_last = i_first;
 		}
 
-		i_now = PPC_Malloc( sizeof( source_instruction_t ) );
+		i_now = PPC_AllocSrc( sizeof( source_instruction_t ) );
 		i_now->op = op;
 		i_now->i_count = i_count;
 		i_now->arg.i = 0;
@@ -3145,12 +3226,20 @@ VM_Compile( vm_t *vm, vmHeader_t *header )
 		i_last->next = i_now;
 		i_last = i_now;
 	}
+	wii_diag_sync("VM_Compile: %s last function\n", vm->name);
 	VM_CompileFunction( i_first );
-	PPC_Free( i_first );
+	PPC_FreeSrc( i_first );
 
+	wii_diag_sync("VM_Compile: %s ShrinkJumps\n", vm->name);
 	PPC_ShrinkJumps();
 	memset( di_pointers, 0, header->instructionCount * sizeof( void * ) );
 	PPC_ComputeCode( vm );
+
+	/* all source/dest/jump/data chains are dead now — free the arena chunks */
+	PPC_ArenaReset();
+
+	wii_diag_sync("VM_Compile: %s ComputeCode done, codeBase=%p codeLength=%d\n",
+		vm->name, (void *)vm->codeBase, vm->codeLength);
 
 	/* check for uninitialized pointers */
 #ifdef DEBUG_VM
@@ -3164,6 +3253,7 @@ VM_Compile( vm_t *vm, vmHeader_t *header )
 #ifdef GEKKO
 	DCFlushRange( vm->codeBase, vm->codeLength );
 	ICInvalidateRange( vm->codeBase, vm->codeLength );
+	wii_diag_sync("VM_Compile: %s caches flushed\n", vm->name);
 #endif
 
 	/* mark memory as executable and not writeable */

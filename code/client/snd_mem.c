@@ -178,6 +178,13 @@ static int ResampleSfx( sfx_t *sfx, int channels, int inrate, int inwidth, int s
 			if (part == 0) {
 				sndBuffer	*newchunk;
 				newchunk = SND_malloc();
+				if (newchunk == NULL) {
+					/* pool exhausted beyond what eviction can recover —
+					   truncate the sound instead of storing through NULL */
+					Com_Printf(S_COLOR_YELLOW "WARNING: sound pool exhausted, truncating %s\n",
+					           sfx->soundName);
+					return i;
+				}
 				if (chunk == NULL) {
 					sfx->soundData = newchunk;
 				} else {
@@ -223,7 +230,13 @@ static int ResampleSfxRaw( short *sfx, int channels, int inrate, int inwidth, in
 		for (j=0 ; j<channels ; j++)
 		{
 			if( inwidth == 2 ) {
-				sample = LittleShort ( ((short *)data)[srcsample+j] );
+				/* NO LittleShort() here: the sound codecs already byte-swap
+				   sample data to native order at load (S_ByteSwapRawSamples
+				   in snd_codec_wav.c). Swapping again is a no-op on x86 but
+				   re-swaps to garbage on big-endian (Wii) — it fed the ADPCM
+				   encoder byte-swapped samples. ResampleSfx (the raw path)
+				   correctly reads with no swap; match it. */
+				sample = ( ((short *)data)[srcsample+j] );
 			} else {
 				sample = (int)( (unsigned char)(data[srcsample+j]) - 128) << 8;
 			}

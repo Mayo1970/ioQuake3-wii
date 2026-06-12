@@ -285,7 +285,22 @@ void RB_TestFlare( flare_t *f ) {
 	glState.finishCalled = qfalse;
 
 	// read back the z buffer contents
+#if defined(WII_NATIVE_GX)
+	{
+		// f->windowY is viewportY + a bottom-up offset within the viewport
+		// (R_TransformClipToWindow), but on GEKKO viewportY is stored
+		// top-down (tr_scene.c), so flip only the within-viewport part.
+		// GXBE_PeekDepth returns GL-equivalent window depth (see tr_gx.h),
+		// so the screenZ reconstruction below is unchanged.
+		int px = (int)f->windowX;
+		int py = backEnd.viewParms.viewportY
+		       + backEnd.viewParms.viewportHeight - 1
+		       - ( (int)f->windowY - backEnd.viewParms.viewportY );
+		depth = GXBE_PeekDepth( px, py );
+	}
+#else
 	qglReadPixels( f->windowX, f->windowY, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth );
+#endif
 
 	screenZ = backEnd.viewParms.projectionMatrix[14] / 
 		( ( 2*depth - 1 ) * backEnd.viewParms.projectionMatrix[11] - backEnd.viewParms.projectionMatrix[10] );

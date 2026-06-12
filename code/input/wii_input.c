@@ -130,10 +130,7 @@ static const btn_map_t s_cc_menu_buttons[] = {
 #define CC_STICK_DEADZONE   0.15f   /* magnitude below which stick is ignored */
 #define CC_STICK_SCALE      32767.0f
 
-/* --- Wii U GamePad (DRC) --------------------------------------------------
-   Layout mirrors the Classic Controller (dual stick + ZL/ZR/L/R + ABXY +
-   dpad + +/-) so K_JOY assignments, default binds and the cl_keys.c label
-   table stay consistent across the two two-stick controllers. */
+/* Wii U GamePad (DRC) — layout mirrors Classic Controller for consistent K_JOY assignments. */
 static const btn_map_t s_drc_buttons[] = {
     { WIIDRC_BUTTON_ZR,     K_JOY1  },
     { WIIDRC_BUTTON_A,      K_JOY2  },
@@ -164,8 +161,7 @@ static const btn_map_t s_drc_menu_buttons[] = {
 };
 #define DRC_MENU_BTN_COUNT (sizeof(s_drc_menu_buttons) / sizeof(s_drc_menu_buttons[0]))
 
-/* DRC stick axes are small signed values (~ -128..+127, centred near 0 after
-   the library's calibration). Normalise against this half-range. */
+/* DRC axes are -128..+127 after calibration; normalise against this half-range. */
 #define DRC_STICK_RANGE     128.0f
 #define DRC_STICK_DEADZONE  0.15f   /* fraction of full range */
 #define DRC_STICK_SCALE     32767.0f
@@ -242,7 +238,7 @@ static void ReleaseAllKeys(void)
     s_accum_x  = s_accum_y  = 0.0f;
     s_accum_cx = s_accum_cy = 0.0f;
     wii_ir_aim_x = wii_ir_aim_y = 0.0f;
-    /* Zero engine-side axes so stale values don't persist across state transitions */
+    /* Zero engine-side axes to prevent stale values on state transitions. */
     Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_SIDE,    0, 0, NULL);
     Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_FORWARD, 0, 0, NULL);
     Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_YAW,     0, 0, NULL);
@@ -383,9 +379,7 @@ static void SetGCBindings(void)
     ApplyBind(K_JOY10,     "+moveright",  force); /* D-right = strafe right */
     ApplyBind(K_JOY_LTRIG, "+zoom",       force); /* L = zoom */
     ApplyBind(K_JOY_RTRIG, "+attack",     force); /* R = fire */
-    /* Clear default.cfg's MOUSE1 -> +attack so the controls screen shows
-       the JOY key name instead of "MOUSE1". Menu navigation uses InjectKey
-       directly and doesn't need this binding. */
+    /* Clear default.cfg MOUSE1 so the controls screen shows the JOY key name instead. */
     Key_SetBinding(K_MOUSE1, "");
 }
 
