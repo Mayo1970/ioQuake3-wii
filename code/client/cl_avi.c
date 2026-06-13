@@ -67,6 +67,8 @@ typedef struct aviFileData_s
   byte          *cBuffer, *eBuffer;
 } aviFileData_t;
 
+#ifndef STANDALONETA
+
 static aviFileData_t afd;
 
 #define MAX_AVI_BUFFER 2048
@@ -667,3 +669,15 @@ qboolean CL_VideoRecording( void )
 {
   return afd.fileOpen;
 }
+
+#else /* STANDALONETA — AVI recording unused; reclaims BSS */
+
+void     CL_WriteAVIHeader( void ) {}
+qboolean CL_OpenAVIForWriting( const char *fileName ) { (void)fileName; return qfalse; }
+void     CL_WriteAVIVideoFrame( const byte *imageBuffer, int size ) { (void)imageBuffer; (void)size; }
+void     CL_WriteAVIAudioFrame( const byte *pcmBuffer, int size )   { (void)pcmBuffer;   (void)size; }
+void     CL_TakeVideoFrame( void ) {}
+qboolean CL_CloseAVI( void ) { return qfalse; }
+qboolean CL_VideoRecording( void ) { return qfalse; }
+
+#endif /* !STANDALONETA */

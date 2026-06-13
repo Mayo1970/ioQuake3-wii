@@ -446,20 +446,35 @@ vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc, qboolean unpure)
 	// be mask protected
 	dataLength = header.h->dataLength + header.h->litLength +
 		header.h->bssLength;
+#if defined(GEKKO)
+	// Save the real (unrounded) size. dataMask still uses the power-of-2 boundary
+	// for safe address wrapping, but dataAlloc only covers the actual data plus the
+	// 64 KB runtime stack limit (PROGRAM_STACK_SIZE). Saves 1-3 MB of hunk per VM
+	// on TA's oversized QVMs (e.g. cgame: 5.25 MB real → 8 MB rounded, saves ~2.7 MB).
+	int rawDataLength = dataLength;
+#endif
 	for ( i = 0 ; dataLength > ( 1 << i ) ; i++ ) {
 	}
 	dataLength = 1 << i;
 
+#if defined(GEKKO)
+	// Allocate rawDataLength + stack guard, capped at power-of-2 if needed.
+	int wiiDataAlloc = rawDataLength + PROGRAM_STACK_SIZE;
+	if (wiiDataAlloc > dataLength) wiiDataAlloc = dataLength;
+#else
+	#define wiiDataAlloc dataLength
+#endif
+
 	wii_diag_sync("VM_LoadQVM: %s data=%d lit=%d bss=%d code=%d instr=%d -> dataAlloc=%d hunk_remaining=%d\n",
 		filename, header.h->dataLength, header.h->litLength, header.h->bssLength,
-		header.h->codeLength, header.h->instructionCount, dataLength + 4,
+		header.h->codeLength, header.h->instructionCount, wiiDataAlloc + 4,
 		Hunk_MemoryRemaining());
 
 	if(alloc)
 	{
 		// allocate zero filled space for initialized and uninitialized data
 		// leave some space beyond data mask so we can secure all mask operations
-		vm->dataAlloc = dataLength + 4;
+		vm->dataAlloc = wiiDataAlloc + 4;
 		vm->dataBase = Hunk_Alloc(vm->dataAlloc, h_high);
 		vm->dataMask = dataLength - 1;
 		wii_diag_sync("VM_LoadQVM: dataBase=%p\n", vm->dataBase);
@@ -467,7 +482,7 @@ vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc, qboolean unpure)
 	else
 	{
 		// clear the data, but make sure we're not clearing more than allocated
-		if(vm->dataAlloc != dataLength + 4)
+		if(vm->dataAlloc != wiiDataAlloc + 4)
 		{
 			VM_Free(vm);
 			FS_FreeFile(header.v);
@@ -479,6 +494,9 @@ vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc, qboolean unpure)
 
 		Com_Memset(vm->dataBase, 0, vm->dataAlloc);
 	}
+#ifndef GEKKO
+	#undef wiiDataAlloc
+#endif
 
 	// copy the intialized data
 	Com_Memcpy( vm->dataBase, (byte *)header.h + header.h->dataOffset,
@@ -696,7 +714,14 @@ vm_t *VM_Create( const char *module, intptr_t (*systemCalls)(intptr_t *),
 	VM_LoadSymbols( vm );
 
 	// the stack is implicitly at the end of the image
+#if defined(GEKKO)
+	// dataAlloc = wiiDataAlloc + 4 (guard bytes); programStack = wiiDataAlloc.
+	// This places the stack top exactly at the end of the allocated region,
+	// which may be less than dataMask + 1 when the real QVM data < power-of-2.
+	vm->programStack = vm->dataAlloc - 4;
+#else
 	vm->programStack = vm->dataMask + 1;
+#endif
 	vm->stackBottom = vm->programStack - PROGRAM_STACK_SIZE;
 
 	Com_Printf("%s loaded in %d bytes on the hunk\n", module, remaining - Hunk_MemoryRemaining());

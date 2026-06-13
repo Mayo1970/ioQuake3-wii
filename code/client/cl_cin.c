@@ -53,6 +53,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define MAX_VIDEO_HANDLES	16
 
 
+#ifndef STANDALONETA
+
 static void RoQ_init( void );
 
 /******************************************************************************
@@ -1702,3 +1704,24 @@ void CIN_UploadCinematic(int handle) {
 	}
 }
 
+#else /* STANDALONETA — no cinematics; reclaims ~3 MB BSS */
+
+void CIN_CloseAllVideos(void) {}
+int CIN_PlayCinematic(const char *arg, int x, int y, int w, int h, int systemBits) {
+	(void)arg; (void)x; (void)y; (void)w; (void)h; (void)systemBits;
+	return -1;
+}
+e_status CIN_StopCinematic(int handle) { (void)handle; return FMV_EOF; }
+e_status CIN_RunCinematic(int handle)  { (void)handle; return FMV_EOF; }
+void CIN_DrawCinematic(int handle)     { (void)handle; }
+void CIN_SetExtents(int handle, int x, int y, int w, int h) {
+	(void)handle; (void)x; (void)y; (void)w; (void)h;
+}
+void CIN_SetLooping(int handle, qboolean loop) { (void)handle; (void)loop; }
+void CIN_UploadCinematic(int handle)   { (void)handle; }
+void CL_PlayCinematic_f(void) {}
+void SCR_DrawCinematic(void) {}
+void SCR_RunCinematic(void) {}
+void SCR_StopCinematic(void) {}
+
+#endif /* !STANDALONETA */
