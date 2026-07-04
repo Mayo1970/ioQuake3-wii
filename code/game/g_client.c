@@ -918,10 +918,9 @@ char *ClientConnect( int clientNum, qboolean firstTime, qboolean isBot ) {
 			return "Invalid password";
 		}
 	}
-	// if a player reconnects quickly after a disconnect, the client disconnect may never be called, thus flag can get lost in the ether
+	// Quick reconnect may skip disconnect callback, so force cleanup.
 	if (ent->inuse) {
 		G_LogPrintf("Forcing disconnect on active client: %i\n", clientNum);
-		// so lets just fix up anything that should happen on a disconnect
 		ClientDisconnect(clientNum);
 	}
 	// they can connect

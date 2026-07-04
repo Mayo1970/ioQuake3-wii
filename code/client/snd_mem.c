@@ -179,8 +179,7 @@ static int ResampleSfx( sfx_t *sfx, int channels, int inrate, int inwidth, int s
 				sndBuffer	*newchunk;
 				newchunk = SND_malloc();
 				if (newchunk == NULL) {
-					/* pool exhausted beyond what eviction can recover —
-					   truncate the sound instead of storing through NULL */
+					/* Pool exhausted: truncate sound instead of NULL deref. */
 					Com_Printf(S_COLOR_YELLOW "WARNING: sound pool exhausted, truncating %s\n",
 					           sfx->soundName);
 					return i;

@@ -789,9 +789,11 @@ static void SV_ConnectionlessPacket( netadr_t from, msg_t *msg ) {
 	MSG_BeginReadingOOB( msg );
 	MSG_ReadLong( msg );		// skip the -1 marker
 
+#ifndef CLASSIC
 	if (!Q_strncmp("connect", (char *) &msg->data[4], 7)) {
 		Huff_Decompress(msg, 12);
 	}
+#endif
 
 	s = MSG_ReadStringLine( msg );
 	Cmd_TokenizeString( s );
@@ -868,6 +870,10 @@ void SV_PacketEvent( netadr_t from, msg_t *msg ) {
 			Com_Printf( "SV_PacketEvent: fixing up a translated port\n" );
 			cl->netchan.remoteAddress.port = from.port;
 		}
+
+#ifdef CLASSIC
+		msg->compat = cl->compat;
+#endif
 
 		// make sure it is a valid, in sequence packet
 		if (SV_Netchan_Process(cl, msg)) {

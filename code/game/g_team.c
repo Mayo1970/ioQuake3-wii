@@ -119,6 +119,8 @@ AddTeamScore
 ==============
 */
 void AddTeamScore(vec3_t origin, int team, int score) {
+#ifndef CLASSIC
+	// EV_GLOBAL_TEAM_SOUND is not in the retail proto-43 event space
 	gentity_t	*te;
 
 	te = G_TempEntity(origin, EV_GLOBAL_TEAM_SOUND );
@@ -154,6 +156,7 @@ void AddTeamScore(vec3_t origin, int team, int score) {
 			te->s.eventParm = GTS_BLUETEAM_SCORED;
 		}
 	}
+#endif
 	level.teamScores[ team ] += score;
 }
 
@@ -357,11 +360,14 @@ void Team_FragBonuses(gentity_t *targ, gentity_t *inflictor, gentity_t *attacker
 		attacker->client->pers.teamState.carrierdefense++;
 		targ->client->pers.teamState.lasthurtcarrier = 0;
 
+#ifndef CLASSIC
+		// retail 1.16n has no defend/assist/capture awards (see bg_public.h)
 		attacker->client->ps.persistant[PERS_DEFEND_COUNT]++;
 		// add the sprite over the player's head
 		attacker->client->ps.eFlags &= ~(EF_AWARD_IMPRESSIVE | EF_AWARD_EXCELLENT | EF_AWARD_GAUNTLET | EF_AWARD_ASSIST | EF_AWARD_DEFEND | EF_AWARD_CAP );
 		attacker->client->ps.eFlags |= EF_AWARD_DEFEND;
 		attacker->client->rewardTime = level.time + REWARD_SPRITE_TIME;
+#endif
 
 		return;
 	}
@@ -435,11 +441,13 @@ void Team_FragBonuses(gentity_t *targ, gentity_t *inflictor, gentity_t *attacker
 		AddScore(attacker, targ->r.currentOrigin, CTF_FLAG_DEFENSE_BONUS);
 		attacker->client->pers.teamState.basedefense++;
 
+#ifndef CLASSIC
 		attacker->client->ps.persistant[PERS_DEFEND_COUNT]++;
 		// add the sprite over the player's head
 		attacker->client->ps.eFlags &= ~(EF_AWARD_IMPRESSIVE | EF_AWARD_EXCELLENT | EF_AWARD_GAUNTLET | EF_AWARD_ASSIST | EF_AWARD_DEFEND | EF_AWARD_CAP );
 		attacker->client->ps.eFlags |= EF_AWARD_DEFEND;
 		attacker->client->rewardTime = level.time + REWARD_SPRITE_TIME;
+#endif
 
 		return;
 	}
@@ -456,11 +464,13 @@ void Team_FragBonuses(gentity_t *targ, gentity_t *inflictor, gentity_t *attacker
 			AddScore(attacker, targ->r.currentOrigin, CTF_CARRIER_PROTECT_BONUS);
 			attacker->client->pers.teamState.carrierdefense++;
 
+#ifndef CLASSIC
 			attacker->client->ps.persistant[PERS_DEFEND_COUNT]++;
 			// add the sprite over the player's head
 			attacker->client->ps.eFlags &= ~(EF_AWARD_IMPRESSIVE | EF_AWARD_EXCELLENT | EF_AWARD_GAUNTLET | EF_AWARD_ASSIST | EF_AWARD_DEFEND | EF_AWARD_CAP );
 			attacker->client->ps.eFlags |= EF_AWARD_DEFEND;
 			attacker->client->rewardTime = level.time + REWARD_SPRITE_TIME;
+#endif
 
 			return;
 		}
@@ -558,6 +568,10 @@ void Team_ReturnFlagSound( gentity_t *ent, int team ) {
 		return;
 	}
 
+#ifdef CLASSIC
+	(void)te; (void)team;
+	return;		// EV_GLOBAL_TEAM_SOUND not in retail proto-43 event space
+#endif
 	te = G_TempEntity( ent->s.pos.trBase, EV_GLOBAL_TEAM_SOUND );
 	if( team == TEAM_BLUE ) {
 		te->s.eventParm = GTS_RED_RETURN;
@@ -575,6 +589,11 @@ void Team_TakeFlagSound( gentity_t *ent, int team ) {
 		G_Printf ("Warning:  NULL passed to Team_TakeFlagSound\n");
 		return;
 	}
+
+#ifdef CLASSIC
+	(void)te;
+	return;		// EV_GLOBAL_TEAM_SOUND not in retail proto-43 event space
+#endif
 
 	// only play sound when the flag was at the base
 	// or not picked up the last 10 seconds
@@ -614,6 +633,10 @@ void Team_CaptureFlagSound( gentity_t *ent, int team ) {
 		return;
 	}
 
+#ifdef CLASSIC
+	(void)te; (void)team;
+	return;		// EV_GLOBAL_TEAM_SOUND not in retail proto-43 event space
+#endif
 	te = G_TempEntity( ent->s.pos.trBase, EV_GLOBAL_TEAM_SOUND );
 	if( team == TEAM_BLUE ) {
 		te->s.eventParm = GTS_BLUE_CAPTURE;
@@ -736,11 +759,13 @@ int Team_TouchOurFlag( gentity_t *ent, gentity_t *other, int team ) {
 	Team_ForceGesture(other->client->sess.sessionTeam);
 
 	other->client->pers.teamState.captures++;
+#ifndef CLASSIC
 	// add the sprite over the player's head
 	other->client->ps.eFlags &= ~(EF_AWARD_IMPRESSIVE | EF_AWARD_EXCELLENT | EF_AWARD_GAUNTLET | EF_AWARD_ASSIST | EF_AWARD_DEFEND | EF_AWARD_CAP );
 	other->client->ps.eFlags |= EF_AWARD_CAP;
 	other->client->rewardTime = level.time + REWARD_SPRITE_TIME;
 	other->client->ps.persistant[PERS_CAPTURES]++;
+#endif
 
 	// other gets another 10 frag bonus
 	AddScore(other, ent->r.currentOrigin, CTF_CAPTURE_BONUS);
@@ -764,27 +789,31 @@ int Team_TouchOurFlag( gentity_t *ent, gentity_t *other, int team ) {
 			AddScore(player, ent->r.currentOrigin, CTF_TEAM_BONUS);
 #endif
 			// award extra points for capture assists
-			if (player->client->pers.teamState.lastreturnedflag + 
+			if (player->client->pers.teamState.lastreturnedflag +
 				CTF_RETURN_FLAG_ASSIST_TIMEOUT > level.time) {
 				AddScore (player, ent->r.currentOrigin, CTF_RETURN_FLAG_ASSIST_BONUS);
 				other->client->pers.teamState.assists++;
 
+#ifndef CLASSIC
 				player->client->ps.persistant[PERS_ASSIST_COUNT]++;
 				// add the sprite over the player's head
 				player->client->ps.eFlags &= ~(EF_AWARD_IMPRESSIVE | EF_AWARD_EXCELLENT | EF_AWARD_GAUNTLET | EF_AWARD_ASSIST | EF_AWARD_DEFEND | EF_AWARD_CAP );
 				player->client->ps.eFlags |= EF_AWARD_ASSIST;
 				player->client->rewardTime = level.time + REWARD_SPRITE_TIME;
+#endif
 
-			} 
-			if (player->client->pers.teamState.lastfraggedcarrier + 
+			}
+			if (player->client->pers.teamState.lastfraggedcarrier +
 				CTF_FRAG_CARRIER_ASSIST_TIMEOUT > level.time) {
 				AddScore(player, ent->r.currentOrigin, CTF_FRAG_CARRIER_ASSIST_BONUS);
 				other->client->pers.teamState.assists++;
+#ifndef CLASSIC
 				player->client->ps.persistant[PERS_ASSIST_COUNT]++;
 				// add the sprite over the player's head
 				player->client->ps.eFlags &= ~(EF_AWARD_IMPRESSIVE | EF_AWARD_EXCELLENT | EF_AWARD_GAUNTLET | EF_AWARD_ASSIST | EF_AWARD_DEFEND | EF_AWARD_CAP );
 				player->client->ps.eFlags |= EF_AWARD_ASSIST;
 				player->client->rewardTime = level.time + REWARD_SPRITE_TIME;
+#endif
 			}
 		}
 	}

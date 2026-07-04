@@ -223,6 +223,30 @@ typedef enum {
 // these fields are the only part of player_state that isn't
 // cleared on respawn
 // NOTE: may not have more than 16
+#ifdef CLASSIC
+// Proto-43 crossplay: persistant[] is exchanged raw-by-index with retail
+// 1.16n servers/clients (Dreamcast, Q3 1.16n PC), so the CLASSIC QVMs must
+// use the retail 1.16n/1.17 slot layout.  Modern-only names (PLAYEREVENTS,
+// ATTACKEE_ARMOR, DEFEND/ASSIST/CAPTURES) are deliberately not defined so
+// the compiler flags every usage that needs a CLASSIC guard.
+typedef enum {
+	PERS_SCORE,						// !!! MUST NOT CHANGE, SERVER AND GAME BOTH REFERENCE !!!
+	PERS_HITS,						// total points damage inflicted so damage beeps can sound on change
+	PERS_RANK,						// player rank or team rank
+	PERS_TEAM,						// player team
+	PERS_SPAWN_COUNT,				// incremented every respawn
+	PERS_REWARD_COUNT,				// incremented for each reward sound
+	PERS_REWARD,					// a reward_t
+	PERS_ATTACKER,					// clientnum of last damage inflicter
+	PERS_KILLED,					// count of the number of times you died
+	// player awards tracking
+	PERS_IMPRESSIVE_COUNT,			// two railgun hits in a row
+	PERS_EXCELLENT_COUNT,			// two successive kills in a short amount of time
+	PERS_GAUNTLET_FRAG_COUNT,		// kills with the guantlet
+	PERS_ACCURACY_SHOTS,			// total number of shots fired
+	PERS_ACCURACY_HITS				// total number of shots that hit
+} persEnum_t;
+#else
 typedef enum {
 	PERS_SCORE,						// !!! MUST NOT CHANGE, SERVER AND GAME BOTH REFERENCE !!!
 	PERS_HITS,						// total points damage inflicted so damage beeps can sound on change
@@ -241,6 +265,7 @@ typedef enum {
 	PERS_GAUNTLET_FRAG_COUNT,		// kills with the guantlet
 	PERS_CAPTURES					// captures
 } persEnum_t;
+#endif
 
 
 // entityState_t->eFlags
@@ -349,6 +374,12 @@ typedef enum {
 
 #define	EVENT_VALID_MSEC	300
 
+// NOTE (CLASSIC): the event enum stays MODERN in the QVMs. Retail proto-43
+// event numbers (retail lacks GLOBAL_TEAM_SOUND/MISSILE_MISS_METAL and the
+// modern EV_BULLET insert, and its ET_EVENTS is 12) are translated at the
+// engine boundary: cl_cgame.c (receive) and sv_snapshot.c (emit when
+// hosting). Do NOT redefine this enum for CLASSIC - the translation layer
+// plus the qagame guards (ScorePlum, team sounds, MISS_METAL) handle it.
 typedef enum {
 	EV_NONE,
 

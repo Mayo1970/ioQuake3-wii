@@ -413,7 +413,12 @@ void G_MissileImpact( gentity_t *ent, trace_t *trace ) {
 		G_AddEvent( ent, EV_MISSILE_HIT, DirToByte( trace->plane.normal ) );
 		ent->s.otherEntityNum = other->s.number;
 	} else if( trace->surfaceFlags & SURF_METALSTEPS ) {
+#ifdef CLASSIC
+		// no MISS_METAL in retail proto-43 - plain miss, like 1.16n did
+		G_AddEvent( ent, EV_MISSILE_MISS, DirToByte( trace->plane.normal ) );
+#else
 		G_AddEvent( ent, EV_MISSILE_MISS_METAL, DirToByte( trace->plane.normal ) );
+#endif
 	} else {
 		G_AddEvent( ent, EV_MISSILE_MISS, DirToByte( trace->plane.normal ) );
 	}

@@ -1561,10 +1561,7 @@ void Com_InitHunkMemory( void ) {
 	int nMinAlloc;
 	char *pMsg = NULL;
 
-	// make sure the file system has allocated and "not" freed any temp blocks
-	// this allows the config and product id files ( journal files too ) to be loaded
-	// by the file system without redunant routines in the file system utilizing different 
-	// memory systems
+	// Ensure FS temp blocks are freed (config/product-id/journal safety).
 	if (FS_LoadStack() != 0) {
 		Com_Error( ERR_FATAL, "Hunk initialization failed. File system load stack not zero");
 	}
@@ -2473,9 +2470,7 @@ void Com_GameRestart_f(void)
 
 #ifndef STANDALONE
 
-// TTimo: centralizing the cl_cdkey stuff after I discovered a buffer overflow problem with the dedicated server version
-//   not sure it's necessary to have different defaults for regular and dedicated, but I don't want to risk it
-//   https://zerowing.idsoftware.com/bugzilla/show_bug.cgi?id=470
+// Centralized CD key (buffer overflow safety).
 #ifndef DEDICATED
 char	cl_cdkey[34] = "wj7cplhs2gp3ac3a";
 #else
@@ -3124,12 +3119,9 @@ void Com_Frame( void ) {
 	int		timeAfter;
   
 
-	wii_diag("Com_Frame: enter\n");
 	if ( setjmp (abortframe) ) {
-		wii_diag("Com_Frame: ERR_DROP caught\n");
 		return;			// an ERR_DROP was thrown
 	}
-	wii_diag("Com_Frame: past setjmp\n");
 
 	timeBeforeFirstEvents =0;
 	timeBeforeServer =0;
@@ -3138,12 +3130,7 @@ void Com_Frame( void ) {
 	timeAfter = 0;
 
 	// write config file if anything changed
-	wii_diag("Com_Frame: before WriteConfiguration\n");
 	Com_WriteConfiguration();
-	wii_diag("Com_Frame: after WriteConfiguration\n");
-
-	static int s_frameLog2 = 3;
-	if(s_frameLog2 > 0) { s_frameLog2--; }
 
 	//
 	// main event loop
@@ -3214,20 +3201,15 @@ void Com_Frame( void ) {
 		else
 			NET_Sleep(timeVal - 1);
 	} while(Com_TimeVal(minMsec));
-	wii_diag("Com_Frame: past NET_Sleep loop\n");
 
 	IN_Frame();
-	wii_diag("Com_Frame: past IN_Frame\n");
 
 	lastTime = com_frameTime;
 	com_frameTime = Com_EventLoop();
-	wii_diag("Com_Frame: past Com_EventLoop\n");
-	
+
 	msec = com_frameTime - lastTime;
 
-	wii_diag("Com_Frame: before Cbuf_Execute\n");
 	Cbuf_Execute ();
-	wii_diag("Com_Frame: after Cbuf_Execute\n");
 
 	if (com_altivec->modified)
 	{
@@ -3237,7 +3219,6 @@ void Com_Frame( void ) {
 
 	// mess with msec if needed
 	msec = Com_ModifyMsec(msec);
-	wii_diag("Com_Frame: after ModifyMsec\n");
 
 	//
 	// server side
@@ -3246,10 +3227,7 @@ void Com_Frame( void ) {
 		timeBeforeServer = Sys_Milliseconds ();
 	}
 
-	static int s_frameLog = 3;
-	wii_diag("Com_Frame: SV_Frame\n");
 	SV_Frame( msec );
-	wii_diag("Com_Frame: SV_Frame done\n");
 
 	// if "dedicated" has been modified, start up
 	// or shut down the client system.
@@ -3287,10 +3265,7 @@ void Com_Frame( void ) {
 		timeBeforeClient = Sys_Milliseconds ();
 	}
 
-	wii_diag("Com_Frame: CL_Frame\n");
 	CL_Frame( msec );
-	if(s_frameLog > 0) s_frameLog--;
-	wii_diag("Com_Frame: CL_Frame done\n");
 
 	if ( com_speeds->integer ) {
 		timeAfter = Sys_Milliseconds ();

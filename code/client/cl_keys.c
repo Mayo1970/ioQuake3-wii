@@ -911,6 +911,12 @@ char *Key_KeynumToString( int keynum ) {
 			"L", "R", "+", "-",
 			"D-Up", "D-Down", "D-Left", "D-Right",
 		};
+		/* USB HID labels (sync with s_usb_buttons[] in wii_input.c). */
+		static const char *s_usb_names[] = {
+			"A", "B", "X", "Y", "LB", "RB", "Back", "Start",
+			"L3", "R3", "D-Up", "D-Down", "D-Left", "D-Right",
+			"LT", "RT",
+		};
 		int idx = keynum - K_JOY1;
 		if (idx >= 0) {
 			int ctrl = Wii_Input_GetCtrlType();
@@ -920,6 +926,7 @@ char *Key_KeynumToString( int keynum ) {
 			else if (ctrl == 2) { names = s_wm_names; count = 11; } /* CTRL_TYPE_WIIMOTE */
 			else if (ctrl == 3) { names = s_cc_names; count = 14; } /* CTRL_TYPE_CLASSIC */
 			else if (ctrl == 4) { names = s_drc_names; count = 14; } /* CTRL_TYPE_DRC */
+			else if (ctrl == 5) { names = s_usb_names; count = 16; } /* CTRL_TYPE_USB */
 			if (names && idx < count)
 				return (char *)names[idx];
 		}

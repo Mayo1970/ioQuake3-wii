@@ -520,7 +520,7 @@ void RE_RegisterFont(const char *fontName, int pointSize, fontInfo_t *font) {
 	// change the scale to be relative to 1 based on 72 dpi ( so dpi of 144 means a scale of .5 )
 	glyphScale = 72.0f / dpi;
 
-	// we also need to adjust the scale based on point size relative to 48 points as the ui scaling is based on a 48 point font
+	// Adjust for UI baseline: 48-point font.
 	glyphScale *= 48.0f / pointSize;
 
 	registeredFont[registeredFontCount].glyphScale = glyphScale;

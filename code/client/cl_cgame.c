@@ -114,6 +114,15 @@ void	CL_GetCurrentSnapshotNumber( int *snapshotNumber, int *serverTime ) {
 	*serverTime = cl.snap.serverTime;
 }
 
+#ifdef CLASSIC
+// proto-43 (Dreamcast / Q3 1.16n) event-number translation for the modern
+// cgame. The shared table + helpers live in msg.c (Classic_EventToModern &
+// friends, declared in qcommon.h) - one source of truth for this client-side
+// receive path and the sv_snapshot.c/sv_client.c emit path when hosting.
+// The raw retail state (cl.parseEntities / clSnap->ps) must stay untouched
+// for delta chaining; only the cgame-facing copies below are translated.
+#endif // CLASSIC
+
 /*
 ====================
 CL_GetSnapshot
@@ -151,6 +160,17 @@ qboolean	CL_GetSnapshot( int snapshotNumber, snapshot_t *snapshot ) {
 	snapshot->serverTime = clSnap->serverTime;
 	Com_Memcpy( snapshot->areamask, clSnap->areamask, sizeof( snapshot->areamask ) );
 	snapshot->ps = clSnap->ps;
+#ifdef CLASSIC
+	// proto-43: translate playerstate event numbers into modern event space on
+	// the cgame-facing copy (clSnap->ps stays 1.16n so deltas keep chaining).
+	if ( clc.compat ) {
+		int j;
+		for ( j = 0 ; j < MAX_PS_EVENTS ; j++ ) {
+			snapshot->ps.events[j] = Classic_EventFieldToModern( snapshot->ps.events[j] );
+		}
+		snapshot->ps.externalEvent = Classic_EventFieldToModern( snapshot->ps.externalEvent );
+	}
+#endif
 	count = clSnap->numEntities;
 	if ( count > MAX_ENTITIES_IN_SNAPSHOT ) {
 		Com_DPrintf( "CL_GetSnapshot: truncated %i entities to %i\n", count, MAX_ENTITIES_IN_SNAPSHOT );
@@ -158,8 +178,15 @@ qboolean	CL_GetSnapshot( int snapshotNumber, snapshot_t *snapshot ) {
 	}
 	snapshot->numEntities = count;
 	for ( i = 0 ; i < count ; i++ ) {
-		snapshot->entities[i] = 
+		snapshot->entities[i] =
 			cl.parseEntities[ ( clSnap->parseEntitiesNum + i ) & (MAX_PARSE_ENTITIES-1) ];
+#ifdef CLASSIC
+		// proto-43: translate 1.16n event space -> modern on the cgame-facing
+		// copy only (cl.parseEntities stays 1.16n for correct delta chaining).
+		if ( clc.compat ) {
+			Classic_TranslateEntityToModern( &snapshot->entities[i] );
+		}
+#endif
 	}
 
 	// FIXME: configstring changes and server commands!!!

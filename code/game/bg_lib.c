@@ -1409,9 +1409,7 @@ double fabs( double x ) {
  *
  **************************************************************/
 
-/* BDR 2002-01-13  %e and %g were being ignored.  Now do something,
-   if not necessarily correctly */
-
+/* Handle %e and %g format specifiers (implementation may vary). */
 #if (SIZEOF_LONG_DOUBLE > 0)
 /* #ifdef HAVE_LONG_DOUBLE */
 #define LDOUBLE long double

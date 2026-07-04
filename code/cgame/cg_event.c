@@ -1017,6 +1017,19 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 		CG_ShotgunFire( es );
 		break;
 
+#ifdef CLASSIC
+	case EV_BULLET:
+		// proto-43 MG tracer: DC/1.16n servers fire this alongside
+		// EV_BULLET_HIT_*. otherEntityNum = shooter; no direction on the wire,
+		// {0,0,1} is a safe placeholder (no decal angle involved).
+		DEBUGNAME("EV_BULLET");
+		{
+			vec3_t zeroDir = { 0, 0, 1 };
+			CG_Bullet( es->pos.trBase, es->otherEntityNum, zeroDir, qfalse, ENTITYNUM_WORLD );
+		}
+		break;
+#endif
+
 	case EV_GENERAL_SOUND:
 		DEBUGNAME("EV_GENERAL_SOUND");
 		if ( cgs.gameSounds[ es->eventParm ] ) {
@@ -1235,7 +1248,15 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 
 	default:
 		DEBUGNAME("UNKNOWN");
+#ifdef CLASSIC
+		// Retail proto-43 event numbering is partly unpinned (see
+		// entity_event_t in bg_public.h); an unknown number must not
+		// disconnect us. The engine-side msg.c forensics log the raw
+		// event for pinning.
+		CG_Printf( "Unknown event: %i\n", event );
+#else
 		CG_Error( "Unknown event: %i", event );
+#endif
 		break;
 	}
 

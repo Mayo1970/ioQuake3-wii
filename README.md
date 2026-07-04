@@ -1,8 +1,11 @@
 # ioQuake3-Wii
 
 A Nintendo Wii port of [ioQuake3](https://github.com/ioquake/ioq3). It boots
-from the Homebrew Channel as `boot.dol` and runs Quake III Arena, Open Arena,
-and Team Arena from SD or USB data.
+from the Homebrew Channel as `boot.dol` and runs Quake III Arena and Open
+Arena from SD or USB data. A separate **CLASSIC** build flavor adds crossplay
+with original Dreamcast Quake III Arena (protocol 43, 1.16n-era) servers, and
+a **Mod Selector** flavor lets you pick a `baseq3`-compatible mod folder from
+a boot-time menu instead of hardcoding it into the build.
 
 The default renderer is the native GX backend. The older OpenGX path is still
 available as a build-time fallback. The default VM mode is the native-PPC QVM
@@ -18,12 +21,21 @@ JIT.
 - Classic Controller / Classic Controller Pro support
 - Wii U GamePad support on vWii
 - GameCube controller support
+- Wired USB HID gamepad support (see below)
 - USB keyboard and mouse support
 - Bot support for offline and hosted games
 - Local server hosting
 - Per-controller button binding persistence across reboots
-- Quake III Arena, Open Arena, and Team Arena build flavors
-- Optional 240p NTSC / 264p PAL video output for CRTs and retro scalers
+- Quake III Arena and Open Arena build flavors; a Team Arena flavor also
+  builds but is still memory-starved and unstable on real hardware (see
+  Known Issues)
+- **CLASSIC** build flavor: crossplay with real Dreamcast Q3A (protocol 43,
+  1.16n-era) servers
+- **Mod Selector** build flavor: boot-time menu to pick any `baseq3`-compatible
+  mod folder present on the data device
+- Boot-time video mode selection — every build contains 480p-ish default,
+  240p NTSC, and 264p PAL output for CRTs and retro scalers, chosen with a
+  d-pad prompt at boot (no separate build needed)
 
 ## Prerequisites
 
@@ -51,20 +63,22 @@ Run these from the repository root in the devkitPro MSYS2 shell.
 |---|---|
 | `make dol` | Q3A release: `build/boot.dol` |
 | `make oa` | Open Arena release: `build_oa/boot.dol` |
-| `make ta` | Team Arena release: `build_ta/boot.dol` |
+| `make classic` | CLASSIC (Dreamcast crossplay) release: `build_classic/boot.dol` |
+| `make modsel` | Mod Selector release: `build_modsel/boot.dol` |
 | `make debug` | Q3A debug build with device-root logging: `build/boot.dol` |
 | `make oa-debug` | OA debug build with device-root logging: `build_oa/boot.dol` |
-| `make ta-debug` | TA debug build with device-root logging: `build_ta/boot.dol` |
-| `make 240p` | Q3A 240p NTSC: `build/boot.dol` |
-| `make oa-240p` | OA 240p NTSC: `build_oa/boot.dol` |
-| `make ta-240p` | TA 240p NTSC: `build_ta/boot.dol` |
-| `make 240p-pal` | Q3A 264p PAL: `build/boot.dol` |
-| `make oa-240p-pal` | OA 264p PAL: `build_oa/boot.dol` |
-| `make ta-240p-pal` | TA 264p PAL: `build_ta/boot.dol` |
-| `make all-flavors` | Q3A + OA + TA release builds |
-| `make all-flavors-240p` | Q3A + OA + TA 240p NTSC builds |
-| `make all-flavors-240p-pal` | Q3A + OA + TA 264p PAL builds |
+| `make classic-debug` | CLASSIC debug build with device-root logging: `build_classic/boot.dol` |
+| `make modsel-debug` | Mod Selector debug build with device-root logging: `build_modsel/boot.dol` |
+| `make all-flavors` | Q3A + OA + CLASSIC release builds |
 | `make clean` | Remove build output directories and copied zlib headers |
+
+Video mode is no longer a build-time choice — every build above contains all
+three modes (default / 240p NTSC / 264p PAL) and prompts for one at boot. See
+"240p / 264p mode" below.
+
+A Team Arena flavor (`make ta`, `make ta-debug`) also builds, and
+`make all-flavors` includes it, but it remains memory-starved and unstable on
+real hardware — not recommended for regular use.
 
 ### Optional build flags
 
@@ -72,7 +86,7 @@ Run these from the repository root in the devkitPro MSYS2 shell.
 |---|---|---|
 | `WII_MAXFPS=30` | `60` | Lower the in-game framerate cap if 60 FPS is unstable on a target console. Menus and loading run at 60 regardless. |
 | `WII_VM_NATIVE=0` | `1` | Use the bytecode interpreter instead of the native-PPC QVM JIT. The interpreter can need several more MB of hunk and may OOM on larger maps. |
-| `WII_FSGAME=modname` | empty | Boot directly into a mod by setting `fs_game`. |
+| `WII_FSGAME=modname` | empty | Boot directly into a mod by setting `fs_game`. Superseded by `make modsel` for picking a mod at boot instead of build time. |
 | `WII_OPENGX=1` | `0` | Build the legacy OpenGX renderer instead of native GX. Run `make clean` before switching renderer backends. |
 | `WII_NATIVE_GX=0` | `1` | Equivalent OpenGX fallback override. Run `make clean` before switching. |
 | `WII_GX_PROFILE=1` | `0` | Enable the GX bottleneck profiler. Use with `make debug` so output reaches `diag.txt`. |
@@ -121,11 +135,14 @@ the same device.
 |   |-- openarena/
 |   |   |-- boot.dol       <- build_oa/boot.dol
 |   |   `-- meta.xml
-|   `-- teamarena/
-|       |-- boot.dol       <- build_ta/boot.dol
+|   |-- ioquake3-classic/
+|   |   |-- boot.dol       <- build_classic/boot.dol
+|   |   `-- meta.xml
+|   `-- ioquake3-modselect/
+|       |-- boot.dol       <- build_modsel/boot.dol
 |       `-- meta.xml
 `-- quake3/
-    |-- baseq3/            <- Q3A data
+    |-- baseq3/            <- Q3A data (also CLASSIC: pak0-pak2.pk3 only)
     |   |-- pak0.pk3
     |   |-- pak1.pk3
     |   |-- ...
@@ -133,16 +150,19 @@ the same device.
     |-- baseoa/            <- Open Arena data
     |   |-- pak0.pk3
     |   `-- ...
-    `-- missionpack/       <- Team Arena data
-        |-- pak0.pk3
-        `-- ...
+    `-- <modname>/         <- any extra mod folder, picked at boot by the Mod Selector flavor
+        `-- *.pk3
 ```
 
 Data requirements:
 
 - Q3A: `<dev>:/quake3/baseq3/pak*.pk3`
 - Open Arena: `<dev>:/quake3/baseoa/pak*.pk3`
-- Team Arena: `<dev>:/quake3/baseq3/pak*.pk3` plus `<dev>:/quake3/missionpack/pak*.pk3`
+- CLASSIC: `<dev>:/quake3/baseq3/pak0-pak2.pk3` only; `zpack-classic.pk3` is
+  embedded in the DOL and auto-extracted to `baseq3/` on first boot
+- Mod Selector: `<dev>:/quake3/baseq3/pak0-pak8.pk3` (the default Q3A data)
+  plus any additional folder under `<dev>:/quake3/` containing at least one
+  `.pk3` — the boot menu lists whatever it finds
 
 Use `sd:` for SD card installs or `usb:` for USB installs. USB boot is also the
 normal path for Wii Mini, which has no SD slot.
@@ -159,12 +179,14 @@ Debug targets enable logging on the active data device:
 
 ## Controls
 
-All available input methods are active. USB devices must be connected before
-boot; hot-plug is not supported.
+All available input methods are active simultaneously. A wired USB HID
+gamepad, if plugged in, takes top priority over every other controller and
+can be hot-plugged/unplugged during play (detected by periodic polling, not
+instant). USB keyboard and mouse must be connected before boot.
 
-Controller priority is: Wii U GamePad, Classic Controller, Wiimote + Nunchuk,
-then GameCube controller. If the Wiimote disconnects, input falls back to the
-GameCube controller.
+Controller priority is: wired USB HID gamepad, Wii U GamePad, Classic
+Controller, Wiimote + Nunchuk, then GameCube controller. If the Wiimote
+disconnects, input falls back to the GameCube controller.
 
 Per-controller bindings are saved separately:
 
@@ -172,6 +194,34 @@ Per-controller bindings are saved separately:
 - `wii_binds_wm.cfg`
 - `wii_binds_cc.cfg`
 - `wii_binds_drc.cfg`
+- `wii_binds_usb.cfg`
+
+### Wired USB HID Gamepad
+
+Confirmed working on real hardware:
+
+| Controller | Notes |
+|---|---|
+| PS3 (Sixaxis / DualShock 3) | |
+| PS4 (DualShock 4), v1 and v2 | |
+| DualSense (PS5) | |
+
+Present in the device profile table but **not functional** — every one
+crashes the console the instant it sends its first real input report, a
+libogc/IOS limitation of the vendor-specific USB class these pads use (see
+`AGENTS.md`/`CLAUDE.md` for the investigation):
+
+- Xbox One / Xbox One S / Xbox One Elite / Xbox One Elite 2
+- Xbox Series X/S
+- Xbox 360 (wired)
+
+A Nintendo Switch Pro Controller (wired) profile also exists in the table but
+is unverified on real hardware.
+
+Each brand's raw report is normalized into one brand-independent virtual
+gamepad (face buttons, shoulders/triggers, two sticks, D-pad), so binds
+behave the same no matter which supported pad is plugged in. Bindings are
+saved to `wii_binds_usb.cfg`.
 
 ### GameCube Controller
 
@@ -306,6 +356,24 @@ Bot AI works in local and hosted games. Use the in-game menus to start a local
 match and add bots. The build uses `MAX_CLIENTS=8`, so up to 7 bots can join
 with one local player.
 
+## CLASSIC Build
+
+`make classic` builds a separate flavor for crossplay with original Sega
+Dreamcast Quake III Arena (protocol 43, 1.16n-era). It uses only
+`pak0-pak2.pk3` from `baseq3/` — the extra assets/QVM changes needed for
+protocol-43 compatibility ship as `zpack-classic.pk3`, embedded in the DOL and
+auto-extracted to `baseq3/` on first boot. This flavor can join real
+Dreamcast-hosted servers; it does not change how the standard Q3A/OA builds
+behave, and nothing about it affects those other flavors.
+
+## Mod Selector
+
+`make modsel` builds a flavor that shows a boot-time menu instead of always
+loading `baseq3`. It scans `<dev>:/quake3/` for any folder (other than
+`baseq3`) that contains at least one `.pk3` file and lets you pick one with
+the d-pad before the engine starts. Picking "baseq3 only" boots normally.
+This replaces having to bake a mod name in with `WII_FSGAME` at build time.
+
 ## Runtime Defaults
 
 The Wii boot cmdline sets conservative defaults before `Com_Init`, including:
@@ -355,6 +423,8 @@ arena so large OA/TA QVMs do not burn sbrk on allocator overhead.
 - `code/sys/wii_platform.h`: force-included before every translation unit for Wii platform identity and memory/network tuning
 - `libs/opengx/`: prebuilt patched OpenGX library and headers for the fallback renderer
 - `libs/wiidrc/`: Wii U GamePad support library and headers
+- `code/input/wii_usb_hid.c`/`.h`: wired USB HID gamepad support (raw libogc USB stack)
+- `fixes/baseq3/zpack-classic.pk3`: CLASSIC-only assets/QVMs, embedded into the DOL and auto-extracted at boot
 
 ## Known Issues
 
@@ -362,10 +432,22 @@ arena so large OA/TA QVMs do not burn sbrk on allocator overhead.
   later in-game and trigger "Memory is low. Using deferred model." The hunk is
   a bump allocator and menu-loaded model meshes are not freed until a map load.
 - Team Arena has the tightest memory budget. It has its own build flavor and
-  dynamic MEM2 bump sizing, but large TA loads can still expose memory pressure
-  before Q3A or OA do.
+  dynamic MEM2 bump sizing, but it remains memory-starved and unstable on real
+  hardware.
+- Wired USB HID gamepads in the Xbox family (One/Series/360) are recognized by
+  VID/PID but crash the console on their first real input report — a
+  libogc/IOS limitation of the vendor-specific USB class those pads use, not
+  fixable from this codebase.
 - `r_measureOverdraw` is not supported on the native GX backend because there
   is no stencil path there.
+
+---
+
+## AI disclosure
+
+Parts of this port were developed with the assistance of **Claude** (Anthropic). AI was used for code generation, debugging, porting guidance, and documentation. All AI-generated code was reviewed and tested on hardware before inclusion.
+
+---
 
 ## License
 

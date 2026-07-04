@@ -66,6 +66,7 @@ CG_ParseScores
 */
 static void CG_ParseScores( void ) {
 	int		i, powerups;
+	int		stride = 14;	// fields per player in the "scores" command
 
 	cg.numScores = atoi( CG_Argv( 1 ) );
 	if ( cg.numScores > MAX_CLIENTS ) {
@@ -75,23 +76,39 @@ static void CG_ParseScores( void ) {
 	cg.teamScores[0] = atoi( CG_Argv( 2 ) );
 	cg.teamScores[1] = atoi( CG_Argv( 3 ) );
 
+#ifdef CLASSIC
+	// Proto-43 servers (Dreamcast, Q3 1.16n) emit only 6 fields per player
+	// (client score ping time scoreFlags powerups); modern Q3 and our own
+	// qagame emit 14 (the extra 8 are award/medal counts). Reading 14 against a
+	// 6-field string makes player N's "client" land on player N+1's ping, e.g.
+	// "Bad score->client: 51". Detect the real stride from the arg count so we
+	// parse both old servers and our own listen server correctly.
+	if ( cg.numScores > 0 ) {
+		int per = ( trap_Argc() - 4 ) / cg.numScores;
+		if ( per == 6 || per == 14 )
+			stride = per;
+	}
+#endif
+
 	memset( cg.scores, 0, sizeof( cg.scores ) );
 	for ( i = 0 ; i < cg.numScores ; i++ ) {
 		//
-		cg.scores[i].client = atoi( CG_Argv( i * 14 + 4 ) );
-		cg.scores[i].score = atoi( CG_Argv( i * 14 + 5 ) );
-		cg.scores[i].ping = atoi( CG_Argv( i * 14 + 6 ) );
-		cg.scores[i].time = atoi( CG_Argv( i * 14 + 7 ) );
-		cg.scores[i].scoreFlags = atoi( CG_Argv( i * 14 + 8 ) );
-		powerups = atoi( CG_Argv( i * 14 + 9 ) );
-		cg.scores[i].accuracy = atoi(CG_Argv(i * 14 + 10));
-		cg.scores[i].impressiveCount = atoi(CG_Argv(i * 14 + 11));
-		cg.scores[i].excellentCount = atoi(CG_Argv(i * 14 + 12));
-		cg.scores[i].guantletCount = atoi(CG_Argv(i * 14 + 13));
-		cg.scores[i].defendCount = atoi(CG_Argv(i * 14 + 14));
-		cg.scores[i].assistCount = atoi(CG_Argv(i * 14 + 15));
-		cg.scores[i].perfect = atoi(CG_Argv(i * 14 + 16));
-		cg.scores[i].captures = atoi(CG_Argv(i * 14 + 17));
+		cg.scores[i].client = atoi( CG_Argv( i * stride + 4 ) );
+		cg.scores[i].score = atoi( CG_Argv( i * stride + 5 ) );
+		cg.scores[i].ping = atoi( CG_Argv( i * stride + 6 ) );
+		cg.scores[i].time = atoi( CG_Argv( i * stride + 7 ) );
+		cg.scores[i].scoreFlags = atoi( CG_Argv( i * stride + 8 ) );
+		powerups = atoi( CG_Argv( i * stride + 9 ) );
+		if ( stride >= 14 ) {
+			cg.scores[i].accuracy = atoi(CG_Argv(i * stride + 10));
+			cg.scores[i].impressiveCount = atoi(CG_Argv(i * stride + 11));
+			cg.scores[i].excellentCount = atoi(CG_Argv(i * stride + 12));
+			cg.scores[i].guantletCount = atoi(CG_Argv(i * stride + 13));
+			cg.scores[i].defendCount = atoi(CG_Argv(i * stride + 14));
+			cg.scores[i].assistCount = atoi(CG_Argv(i * stride + 15));
+			cg.scores[i].perfect = atoi(CG_Argv(i * stride + 16));
+			cg.scores[i].captures = atoi(CG_Argv(i * stride + 17));
+		}
 
 		if ( cg.scores[i].client < 0 || cg.scores[i].client >= MAX_CLIENTS ) {
 			cg.scores[i].client = 0;

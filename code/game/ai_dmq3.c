@@ -4418,17 +4418,8 @@ void BotRandomMove(bot_state_t *bs, bot_moveresult_t *moveresult) {
 	VectorCopy(dir, moveresult->movedir);
 }
 
-/*
-==================
-BotAIBlocked
-
-Very basic handling of bots being blocked by other entities.
-Check what kind of entity is blocking the bot and try to activate
-it. If that's not an option then try to walk around or over the entity.
-Before the bot ends in this part of the AI it should predict which doors to
-open, which buttons to activate etc.
-==================
-*/
+// Handle bots blocked by entities: try to activate or walk around them.
+// TODO: predict which doors/buttons to activate.
 void BotAIBlocked(bot_state_t *bs, bot_moveresult_t *moveresult, int activate) {
 #ifdef OBSTACLEDEBUG
 	char netname[MAX_NETNAME];

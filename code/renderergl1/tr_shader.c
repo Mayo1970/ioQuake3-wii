@@ -2983,7 +2983,7 @@ static void ScanAndLoadShaderFiles( void )
 		if ( !buffers[i] )
 			ri.Error( ERR_DROP, "Couldn't load %s", filename );
 		
-		// Do a simple check on the shader structure in that file to make sure one bad shader file cannot fuck up all other shaders.
+		// Validate shader structure so one bad file doesn't corrupt all shaders.
 		p = buffers[i];
 		COM_BeginParseSession(filename);
 		while(1)

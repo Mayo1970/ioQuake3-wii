@@ -327,7 +327,13 @@ void ShotgunPattern( vec3_t origin, vec3_t origin2, int seed, gentity_t *ent ) {
 
 	// derive the right and up vectors from the forward vector, because
 	// the client won't have any other information
+#ifdef CLASSIC
+	// retail 1.16n endpoint semantics — must match CG_ShotgunPattern
+	VectorSubtract( origin2, origin, localForward );
+	VectorNormalize( localForward );
+#else
 	VectorNormalize2( origin2, localForward );
+#endif
 	PerpendicularVector( localRight, localForward );
 	CrossProduct( localForward, localRight, localUp );
 
@@ -352,6 +358,11 @@ void weapon_supershotgun_fire (gentity_t *ent) {
 	// send shotgun blast
 	tent = G_TempEntity( muzzle, EV_SHOTGUN );
 	VectorScale( forward, 4096, tent->s.origin2 );
+#ifdef CLASSIC
+	// retail 1.16n: origin2 is an absolute endpoint (muzzle + forward*4096) —
+	// what retail cgames (DC/1.16n joiners) and our CLASSIC cgame parse
+	VectorAdd( tent->s.origin2, muzzle, tent->s.origin2 );
+#endif
 	SnapVector( tent->s.origin2 );
 	tent->s.eventParm = rand() & 255;		// seed for spread pattern
 	tent->s.otherEntityNum = ent->s.number;

@@ -400,6 +400,9 @@ void SV_WriteFrameToClient (client_t *client, msg_t *msg);
 void SV_SendMessageToClient( msg_t *msg, client_t *client );
 void SV_SendClientMessages( void );
 void SV_SendClientSnapshot( client_t *client );
+#ifdef CLASSIC
+void SV_WriteDummySnapshotToClient( client_t *client, msg_t *msg );
+#endif
 
 //
 // sv_game.c

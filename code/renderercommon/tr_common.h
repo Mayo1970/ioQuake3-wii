@@ -99,6 +99,7 @@ extern cvar_t *r_mode;				// video mode
 extern cvar_t *r_noborder;
 extern cvar_t *r_fullscreen;
 extern cvar_t *r_ignorehwgamma;		// overrides hardware gamma capabilities
+extern cvar_t *r_tvborder;				// GEKKO: TV overscan safe-area inset, [0.0, 0.15]
 extern cvar_t *r_drawBuffer;
 extern cvar_t *r_swapInterval;
 

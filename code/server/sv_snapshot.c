@@ -45,6 +45,18 @@ A normal server packet will look like:
 =============================================================================
 */
 
+#ifdef CLASSIC
+// proto-43 hosting: every compat entity/playerstate write must carry RETAIL
+// event numbers (tables in msg.c). Internal state (frames, baselines) stays
+// modern; only stack copies at the write boundary are translated, so deltas
+// stay consistent (both from and to are translated identically).
+static entityState_t *SV_Classic_RetailEnt( const entityState_t *s, entityState_t *buf ) {
+	*buf = *s;
+	Classic_TranslateEntityToRetail( buf );
+	return buf;
+}
+#endif
+
 /*
 =============
 SV_EmitPacketEntities
@@ -88,6 +100,13 @@ static void SV_EmitPacketEntities( clientSnapshot_t *from, clientSnapshot_t *to,
 			// delta update from old position
 			// because the force parm is qfalse, this will not result
 			// in any bytes being emitted if the entity has not changed at all
+#ifdef CLASSIC
+			if ( msg->compat ) {
+				entityState_t oldC, newC;
+				MSG_WriteDeltaEntity( msg, SV_Classic_RetailEnt( oldent, &oldC ),
+					SV_Classic_RetailEnt( newent, &newC ), qfalse );
+			} else
+#endif
 			MSG_WriteDeltaEntity (msg, oldent, newent, qfalse );
 			oldindex++;
 			newindex++;
@@ -96,6 +115,14 @@ static void SV_EmitPacketEntities( clientSnapshot_t *from, clientSnapshot_t *to,
 
 		if ( newnum < oldnum ) {
 			// this is a new entity, send it from the baseline
+#ifdef CLASSIC
+			if ( msg->compat ) {
+				entityState_t baseC, newC;
+				MSG_WriteDeltaEntity( msg,
+					SV_Classic_RetailEnt( &sv.svEntities[newnum].baseline, &baseC ),
+					SV_Classic_RetailEnt( newent, &newC ), qtrue );
+			} else
+#endif
 			MSG_WriteDeltaEntity (msg, &sv.svEntities[newnum].baseline, newent, qtrue );
 			newindex++;
 			continue;
@@ -157,6 +184,10 @@ static void SV_WriteSnapshotToClient( client_t *client, msg_t *msg ) {
 	// NOTE, MRE: now sent at the start of every message from server to client
 	// let the client know which reliable clientCommands we have received
 	//MSG_WriteLong( msg, client->lastClientCommand );
+#ifdef CLASSIC
+	if(msg->compat)
+		MSG_WriteLong( msg, client->lastClientCommand );
+#endif
 
 	// send over the current server time so the client can drift
 	// its view of time to try to match
@@ -190,6 +221,21 @@ static void SV_WriteSnapshotToClient( client_t *client, msg_t *msg ) {
 	MSG_WriteData (msg, frame->areabits, frame->areabytes);
 
 	// delta encode the playerstate
+#ifdef CLASSIC
+	if ( msg->compat ) {
+		// retail event numbers on the wire; internal frames stay modern
+		playerState_t newPS, oldPS;
+		newPS = frame->ps;
+		Classic_TranslatePlayerstateToRetail( &newPS );
+		if ( oldframe ) {
+			oldPS = oldframe->ps;
+			Classic_TranslatePlayerstateToRetail( &oldPS );
+			MSG_WriteDeltaPlayerstate( msg, &oldPS, &newPS );
+		} else {
+			MSG_WriteDeltaPlayerstate( msg, NULL, &newPS );
+		}
+	} else
+#endif
 	if ( oldframe ) {
 		MSG_WriteDeltaPlayerstate( msg, &oldframe->ps, &frame->ps );
 	} else {
@@ -586,6 +632,45 @@ void SV_SendMessageToClient(msg_t *msg, client_t *client)
 }
 
 
+#ifdef CLASSIC
+/*
+===================
+SV_WriteDummySnapshotToClient
+
+Compat (proto 43): send a minimal snapshot during downloads so the client
+can update reliableAcknowledge without receiving full entity/playerstate data.
+===================
+*/
+void SV_WriteDummySnapshotToClient( client_t *client, msg_t *msg ) {
+	int snapFlags;
+	playerState_t ps;
+
+	MSG_WriteByte(msg, svc_snapshot);
+	if(msg->compat)
+		MSG_WriteLong(msg, client->lastClientCommand);
+
+	if(client->oldServerTime)
+		MSG_WriteLong(msg, sv.time + client->oldServerTime);
+	else
+		MSG_WriteLong(msg, sv.time);
+
+	MSG_WriteByte(msg, 0); // lastframe = 0
+
+	snapFlags = svs.snapFlagServerBit;
+	if(client->rateDelayed) snapFlags |= SNAPFLAG_RATE_DELAYED;
+	if(client->state != CS_ACTIVE) snapFlags |= SNAPFLAG_NOT_ACTIVE;
+	MSG_WriteByte(msg, snapFlags);
+
+	MSG_WriteByte(msg, 0); // areabytes = 0
+	MSG_WriteData(msg, NULL, 0);
+
+	Com_Memset(&ps, 0, sizeof(ps));
+	MSG_WriteDeltaPlayerstate(msg, &ps, &ps);
+
+	MSG_WriteBits(msg, (MAX_GENTITIES-1), GENTITYNUM_BITS);
+}
+#endif
+
 /*
 =======================
 SV_SendClientSnapshot
@@ -607,11 +692,22 @@ void SV_SendClientSnapshot( client_t *client ) {
 		return;
 	}
 
+#ifdef CLASSIC
+	if(client->compat)
+		MSG_InitOOB(&msg, msg_buf, sizeof(msg_buf));
+	else
+#endif
 	MSG_Init (&msg, msg_buf, sizeof(msg_buf));
+#ifdef CLASSIC
+	msg.compat = client->compat;
+#endif
 	msg.allowoverflow = qtrue;
 
 	// NOTE, MRE: all server->client messages now acknowledge
 	// let the client know which reliable clientCommands we have received
+#ifdef CLASSIC
+	if(!client->compat)
+#endif
 	MSG_WriteLong( &msg, client->lastClientCommand );
 
 	// (re)send any reliable server commands

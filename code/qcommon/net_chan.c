@@ -99,6 +99,77 @@ void Netchan_Setup(netsrc_t sock, netchan_t *chan, netadr_t adr, int qport, int 
 #endif
 }
 
+#ifdef CLASSIC
+#define	SCRAMBLE_START	6
+static void Netchan_ScramblePacket( msg_t *buf ) {
+	unsigned	seed;
+	int			i, j, c, mask, temp;
+	int			seq[MAX_PACKETLEN];
+
+	seed = ( LittleLong( *(unsigned *)buf->data ) * 3 ) ^ ( buf->cursize * 123 ) ^ 0x87243987;
+	c = buf->cursize;
+	if ( c <= SCRAMBLE_START ) {
+		return;
+	}
+	if ( c > MAX_PACKETLEN ) {
+		Com_Error( ERR_DROP, "MAX_PACKETLEN" );
+	}
+
+	for (i = 0 ; i < c ; i++) {
+		seed = (69069 * seed + 1);
+		seq[i] = seed;
+	}
+
+	for (i = SCRAMBLE_START ; i < c ; i++) {
+		buf->data[i] ^= seq[i];
+	}
+
+	for ( mask = 1 ; mask < c-SCRAMBLE_START ; mask = ( mask << 1 ) + 1 ) {
+	}
+	mask >>= 1;
+	for (i = SCRAMBLE_START ; i < c ; i++) {
+		j = SCRAMBLE_START + ( seq[i] & mask );
+		temp = buf->data[j];
+		buf->data[j] = buf->data[i];
+		buf->data[i] = temp;
+	}
+}
+
+static void Netchan_UnScramblePacket( msg_t *buf ) {
+	unsigned	seed;
+	int			i, j, c, mask, temp;
+	int			seq[MAX_PACKETLEN];
+
+	seed = ( LittleLong( *(unsigned *)buf->data ) * 3 ) ^ ( buf->cursize * 123 ) ^ 0x87243987;
+	c = buf->cursize;
+	if ( c <= SCRAMBLE_START ) {
+		return;
+	}
+	if ( c > MAX_PACKETLEN ) {
+		Com_Error( ERR_DROP, "MAX_PACKETLEN" );
+	}
+
+	for (i = 0 ; i < c ; i++) {
+		seed = (69069 * seed + 1);
+		seq[i] = seed;
+	}
+
+	for ( mask = 1 ; mask < c-SCRAMBLE_START ; mask = ( mask << 1 ) + 1 ) {
+	}
+	mask >>= 1;
+	for (i = c-1 ; i >= SCRAMBLE_START ; i--) {
+		j = SCRAMBLE_START + ( seq[i] & mask );
+		temp = buf->data[j];
+		buf->data[j] = buf->data[i];
+		buf->data[i] = temp;
+	}
+
+	for (i = SCRAMBLE_START ; i < c ; i++) {
+		buf->data[i] ^= seq[i];
+	}
+}
+#endif /* CLASSIC */
+
 /*
 =================
 Netchan_TransmitNextFragment
@@ -137,6 +208,11 @@ void Netchan_TransmitNextFragment( netchan_t *chan ) {
 	MSG_WriteShort( &send, chan->unsentFragmentStart );
 	MSG_WriteShort( &send, fragmentLength );
 	MSG_WriteData( &send, chan->unsentBuffer + chan->unsentFragmentStart, fragmentLength );
+
+#ifdef CLASSIC
+	if(chan->compat)
+		Netchan_ScramblePacket( &send );
+#endif
 
 	// send the datagram
 	NET_SendPacket(chan->sock, send.cursize, send.data, chan->remoteAddress);
@@ -213,6 +289,11 @@ void Netchan_Transmit( netchan_t *chan, int length, const byte *data ) {
 
 	MSG_WriteData( &send, data, length );
 
+#ifdef CLASSIC
+	if(chan->compat)
+		Netchan_ScramblePacket( &send );
+#endif
+
 	// send the datagram
 	NET_SendPacket( chan->sock, send.cursize, send.data, chan->remoteAddress );
 
@@ -247,9 +328,12 @@ qboolean Netchan_Process( netchan_t *chan, msg_t *msg ) {
 	qboolean	fragmented;
 
 	// XOR unscramble all data in the packet after the header
-//	Netchan_UnScramblePacket( msg );
+#ifdef CLASSIC
+	if(chan->compat)
+		Netchan_UnScramblePacket( msg );
+#endif
 
-	// get sequence numbers		
+	// get sequence numbers
 	MSG_BeginReadingOOB( msg );
 	sequence = MSG_ReadLong( msg );
 

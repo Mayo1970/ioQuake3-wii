@@ -579,11 +579,7 @@ void VectorArrayNormalize(vec4_t *normals, unsigned int count)
         float one  = 1.0;
         float *components = (float *)normals;
         
-        // Vanilla PPC code, but since PPC has a reciprocal square root estimate instruction,
-        // runs *much* faster than calling sqrt().  We'll use a single Newton-Raphson
-        // refinement step to get a little more precision.  This seems to yield results
-        // that are correct to 3 decimal places and usually correct to at least 4 (sometimes 5).
-        // (That is, for the given input range of about 0.6 to 2.0).
+        // PPC RSQRTE + Newton-Raphson refinement: fast, 3–5 decimal accuracy.
         do {
             float x, y, z;
             float B, y0, y1;

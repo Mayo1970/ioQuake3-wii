@@ -315,14 +315,7 @@ void CL_WriteAVIHeader( void )
   }
 }
 
-/*
-===============
-CL_OpenAVIForWriting
-
-Creates an AVI file and gets it into a state where
-writing the actual data can begin
-===============
-*/
+// Create AVI file and prepare for data write.
 qboolean CL_OpenAVIForWriting( const char *fileName )
 {
   if( afd.fileOpen )
@@ -371,9 +364,7 @@ qboolean CL_OpenAVIForWriting( const char *fileName )
   afd.a.rate = dma.speed;
   afd.a.format = WAV_FORMAT_PCM;
   afd.a.channels = dma.channels;
-  /* !!! FIXME: if CL_WriteAVIAudioFrame() is ever called from somewhere other
-     !!! FIXME:  than S_TransferStereo16(), we will need to handle/convert
-     !!! FIXME:  float32 samples for AVI writing. */
+  // FIXME: handle float32 if CL_WriteAVIAudioFrame() called from elsewhere.
   afd.a.bits = dma.samplebits;
   afd.a.sampleSize = ( afd.a.bits / 8 ) * afd.a.channels;
 

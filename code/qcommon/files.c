@@ -345,8 +345,7 @@ qboolean FS_PakIsPure( pack_t *pack ) {
 	if ( fs_numServerPaks ) {
 		for ( i = 0 ; i < fs_numServerPaks ; i++ ) {
 			// FIXME: also use hashed file names
-			// NOTE TTimo: a pk3 with same checksum but different name would be validated too
-			//   I don't see this as allowing for any exploit, it would only happen if the client does manips of its file names 'not a bug'
+			// Note: pk3 with same checksum but different name would validate too (not an exploit)
 			if ( pack->checksum == fs_serverPaks[i] ) {
 				return qtrue;		// on the aproved list
 			}
@@ -644,16 +643,8 @@ qboolean FS_FileInPathExists(const char *testpath)
 	return qfalse;
 }
 
-/*
-================
-FS_FileExists_HomeData
-
-Tests if the file exists in the current gamedir, this DOES NOT
-search the paths.  This is to determine if opening a file to write
-(which always goes into the current gamedir) will cause any overwrites.
-NOTE TTimo: this goes with FS_FOpenFileWrite for opening the file afterwards
-================
-*/
+// Check if file exists in current gamedir (no path search). Detects overwrite on write ops.
+// Pair with FS_FOpenFileWrite.
 qboolean FS_FileExists_HomeData(const char *file)
 {
 	return FS_FileInPathExists(FS_BuildOSPath(fs_homedatapath->string, fs_gamedir, file));
@@ -1711,7 +1702,7 @@ CONVENIENCE FUNCTIONS FOR ENTIRE FILES
 ======================================================================================
 */
 
-int	FS_FileIsInPAK(const char *filename, int *pChecksum ) {
+int	FS_FileIsInPAK(const char *filename, qboolean compat, int *pChecksum ) {
 	searchpath_t	*search;
 	pack_t			*pak;
 	fileInPack_t	*pakFile;
@@ -1760,7 +1751,11 @@ int	FS_FileIsInPAK(const char *filename, int *pChecksum ) {
 				// case and separator insensitive comparisons
 				if ( !FS_FilenameCompare( pakFile->name, filename ) ) {
 					if (pChecksum) {
+#ifdef CLASSIC
+						*pChecksum = compat ? pak->checksum : pak->pure_checksum;
+#else
 						*pChecksum = pak->pure_checksum;
+#endif
 					}
 					return 1;
 				}
@@ -1769,6 +1764,10 @@ int	FS_FileIsInPAK(const char *filename, int *pChecksum ) {
 		}
 	}
 	return -1;
+}
+
+int FS_FileIsInPAKNonCompat(const char *filename, int *pChecksum) {
+	return FS_FileIsInPAK(filename, qfalse, pChecksum);
 }
 
 /*
@@ -2544,9 +2543,7 @@ int	FS_GetModList( char *listbuf, int bufsize ) {
 			continue;
 		}
 
-		// in order to be a valid mod the directory must contain at least one .pk3 or .pk3dir
-		// we didn't keep the information when we merged the directory names, as to what OS Path it was found under
-		// so we will try each of them here
+		// Valid mod: needs at least one .pk3 or .pk3dir. Try all OS paths.
 		for (j = 0; j < ARRAY_LEN(fs_pathVars); j++) {
 			const cvar_t *pathVar = fs_pathVars[j];
 
@@ -2955,6 +2952,46 @@ static void FS_AddGameDirectory( const char *path, const char *dir ) {
 
 		if (pakwhich) {
 			// The next .pk3 file is before the next .pk3dir
+#ifdef CLASSIC
+			{
+				/* CLASSIC: load only pak0-pak2, zpack-classic.pk3, and dc-mappack.pk3.
+				 * Skip everything else. */
+				const char *_pn = pakfiles[pakfilesi];
+				qboolean _skip = qfalse;
+				if (Q_stricmp(_pn, "zpack-classic.pk3") == 0 ||
+				    Q_stricmp(_pn, "dc-mappack.pk3") == 0) {
+					_skip = qfalse;
+				} else if (Q_stricmpn(_pn, "pak", 3) == 0) {
+					const char *_p = _pn + 3;
+					int _pakNum = 0;
+					qboolean _hasDigit = qfalse;
+					while (*_p >= '0' && *_p <= '9') {
+						_pakNum = _pakNum * 10 + (*_p - '0');
+						_hasDigit = qtrue;
+						_p++;
+					}
+					if (_hasDigit && (*_p == '.' || *_p == '\0')) {
+						_skip = (_pakNum > 2);
+					} else {
+						_skip = qtrue;
+					}
+				} else {
+					_skip = qtrue;
+				}
+				if (_skip) {
+					pakfilesi++;
+					continue;
+				}
+			}
+#else
+			{
+				/* Non-CLASSIC: skip zpack-classic.pk3 (irrelevant to Q3/OA/TA builds). */
+				if (Q_stricmp(pakfiles[pakfilesi], "zpack-classic.pk3") == 0) {
+					pakfilesi++;
+					continue;
+				}
+			}
+#endif
 			pakfile = FS_BuildOSPath(path, dir, pakfiles[pakfilesi]);
 			if ((pak = FS_LoadZipFile(pakfile, pakfiles[pakfilesi])) == 0) {
 				// This isn't a .pk3! Next!
@@ -3909,7 +3946,7 @@ Servers with sv_pure set will get this string back from clients for pure validat
 The string has a specific order, "cgame ui @ ref1 ref2 ref3 ..."
 =====================
 */
-const char *FS_ReferencedPakPureChecksums( void ) {
+const char *FS_ReferencedPakPureChecksums( qboolean compat ) {
 	static char	info[BIG_INFO_STRING];
 	searchpath_t	*search;
 	int nFlags, numPaks, checksum;
@@ -3930,6 +3967,15 @@ const char *FS_ReferencedPakPureChecksums( void ) {
 		for ( search = fs_searchpaths ; search ; search = search->next ) {
 			// is the element a pak file and has it been referenced based on flag?
 			if ( search->pack && (search->pack->referenced & nFlags)) {
+#ifdef CLASSIC
+				if ( compat ) {
+					int pakNum;
+					/* proto-43: only report stock pak0-pak2; skip Wii-custom paks */
+					if ( sscanf( search->pack->pakBasename, "pak%d", &pakNum ) != 1 || pakNum > 2 )
+						continue;
+					Q_strcat( info, sizeof( info ), va("%i ", search->pack->checksum ) );
+				} else
+#endif
 				Q_strcat( info, sizeof( info ), va("%i ", search->pack->pure_checksum ) );
 				if (nFlags & (FS_CGAME_REF | FS_UI_REF)) {
 					break;
@@ -3939,9 +3985,15 @@ const char *FS_ReferencedPakPureChecksums( void ) {
 			}
 		}
 	}
+#ifdef CLASSIC
+	if ( !compat ) {
+#endif
 	// last checksum is the encoded number of referenced pk3s
 	checksum ^= numPaks;
 	Q_strcat( info, sizeof( info ), va("%i ", checksum ) );
+#ifdef CLASSIC
+	}
+#endif
 
 	return info;
 }
@@ -4137,7 +4189,7 @@ void FS_InitFilesystem( void ) {
 	// try to start up normally
 	FS_Startup(com_basegame->string);
 
-#if !defined(STANDALONE) && !defined(STANDALONEOA)
+#if !defined(STANDALONE) && !defined(STANDALONEOA) && !defined(STANDALONETA) && !defined(CLASSIC)
 	FS_CheckPak0( );
 #endif
 

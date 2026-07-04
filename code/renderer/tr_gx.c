@@ -14,9 +14,7 @@ gx_state_t gxState;
 static int   s_polyOffsetFill;
 static float s_polyOffsetUnits;
 
-/* Vertex staging ring: each draw copies vertex data here so the GPU reads a stable buffer
- * while the CPU rewrites tess. Halves fenced with GX_SetDrawSync tokens. Falls back to
- * per-draw GX_DrawDone if alloc fails. */
+/* Vertex staging ring: decouples CPU tess rewrites from GPU reads via GX_SetDrawSync. */
 
 #define GXBE_RING_HALF  (128 * 1024)  /* worst-case draw ~52 KB (1000 verts,
                                        * stride-16 pos + 2x stride-16 tex) */
@@ -272,11 +270,12 @@ void GXBE_SetDefaultState(void)
     gxState.texStride[0] = sizeof(vec2_t);
     gxState.texStride[1] = sizeof(vec2_t);
 
-    /* Full-screen viewport so DepthRange/Clear have sane geometry before first SetViewportAndScissor. */
-    gxState.vpX = 0;  gxState.vpY = 0;
-    gxState.vpW = glConfig.vidWidth;
-    gxState.vpH = glConfig.vidHeight;
-    GX_SetViewport(0.0f, 0.0f, (f32)gxState.vpW, (f32)gxState.vpH, 0.0f, 1.0f);
+    /* Full-screen viewport so DepthRange/Clear have sane geometry before first
+     * SetViewportAndScissor. Routed through GXBE_SetViewport (not raw GX_SetViewport)
+     * so the TV-border inset applies from the very first frame. */
+    gxState.depthNear = 0.0f;
+    gxState.depthFar  = 1.0f;
+    GXBE_SetViewport(0, 0, glConfig.vidWidth, glConfig.vidHeight);
 
     /* Seed stored matrices so GXBE_Clear can restore them. */
     guOrtho(gxState.projMtx, 0.0f, (f32)glConfig.vidHeight,
@@ -314,8 +313,9 @@ void GXBE_SetDefaultState(void)
     GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
     GX_SetTevOp(GX_TEVSTAGE0, GX_MODULATE);
 
-    /* Scissor: full-screen (will be set properly in RB_SetGL2D) */
-    GX_SetScissor(0, 0, glConfig.vidWidth, glConfig.vidHeight);
+    /* Scissor: full-screen (will be set properly in RB_SetGL2D). Routed through
+     * GXBE_SetScissor so the TV-border inset applies from the very first frame. */
+    GXBE_SetScissor(0, 0, glConfig.vidWidth, glConfig.vidHeight);
 
     /* Keep glState.glStateBits in sync for subsequent GL_State diffs. */
     glState.glStateBits = GLS_DEPTHTEST_DISABLE | GLS_DEPTHMASK_TRUE;
@@ -599,8 +599,36 @@ void GXBE_LoadModelviewTranslatedGL(const float *gl16, const vec3_t origin)
     GXBE_LoadModelviewGL(m);
 }
 
+/* Insets a full-screen-space rect toward the center by r_tvborder (TV overscan
+ * safe area), so every viewport/scissor consumer lands inside the TV-safe
+ * area without touching VI timing/rmode (see CLAUDE.md renderer section —
+ * VIDEO_Configure/rmode edits are the documented flicker trap). */
+static void gxbe_apply_tvborder(int *x, int *y, int *w, int *h)
+{
+    float b, sx, sy;
+    int insetX, insetY;
+
+    if (!r_tvborder || r_tvborder->value <= 0.0f)
+        return;
+
+    b = r_tvborder->value;
+    if (b > 0.15f) b = 0.15f;
+
+    insetX = (int)(glConfig.vidWidth  * b);
+    insetY = (int)(glConfig.vidHeight * b);
+    sx = (float)(glConfig.vidWidth  - 2 * insetX) / (float)glConfig.vidWidth;
+    sy = (float)(glConfig.vidHeight - 2 * insetY) / (float)glConfig.vidHeight;
+
+    *x = insetX + (int)(*x * sx);
+    *y = insetY + (int)(*y * sy);
+    *w = (int)(*w * sx);
+    *h = (int)(*h * sy);
+}
+
 void GXBE_SetViewport(int x, int y, int w, int h)
 {
+    gxbe_apply_tvborder(&x, &y, &w, &h);
+
     gxState.vpX = x;  gxState.vpY = y;
     gxState.vpW = w;  gxState.vpH = h;
     /* GX viewport: nearZ/farZ map GX clip-space Z range to EFB Z [0,1]. */
@@ -610,6 +638,8 @@ void GXBE_SetViewport(int x, int y, int w, int h)
 
 void GXBE_SetScissor(int x, int y, int w, int h)
 {
+    gxbe_apply_tvborder(&x, &y, &w, &h);
+
     /* GX scissor uses absolute top-left pixel coordinates. */
     if (x < 0) { w += x; x = 0; }
     if (y < 0) { h += y; y = 0; }

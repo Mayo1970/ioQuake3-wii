@@ -657,7 +657,15 @@ void SV_Init (void)
 	// systeminfo
 	Cvar_Get ("sv_cheats", "1", CVAR_SYSTEMINFO | CVAR_ROM );
 	sv_serverid = Cvar_Get ("sv_serverid", "0", CVAR_SYSTEMINFO | CVAR_ROM );
+#ifdef CLASSIC
+	// retail/DC clients can never validate our zpack QVM checksums - pure
+	// hosting guarantees an "Unpure Client" drop or the didn't-get-cp
+	// gamestate-resend loop in SV_UserMove. ROM so neither the start-server
+	// UI nor a config can flip it back (PS4 CLASSIC_CROSSPLAY.MD §K2).
+	sv_pure = Cvar_Get ("sv_pure", "0", CVAR_SYSTEMINFO | CVAR_ROM );
+#else
 	sv_pure = Cvar_Get ("sv_pure", "1", CVAR_SYSTEMINFO );
+#endif
 #ifdef USE_VOIP
 	sv_voip = Cvar_Get("sv_voip", "1", CVAR_LATCH);
 	Cvar_CheckRange(sv_voip, 0, 1, qtrue);
@@ -679,8 +687,13 @@ void SV_Init (void)
 	sv_allowDownload = Cvar_Get ("sv_allowDownload", "0", CVAR_SERVERINFO);
 	Cvar_Get ("sv_dlURL", "", CVAR_SERVERINFO | CVAR_ARCHIVE);
 	
+#ifdef CLASSIC
+	sv_master[0] = Cvar_Get("sv_master1", "dc.dreamcast-talk.com", 0);
+	sv_master[1] = Cvar_Get("sv_master2", "", CVAR_ARCHIVE);
+#else
 	sv_master[0] = Cvar_Get("sv_master1", MASTER_SERVER_NAME, 0);
 	sv_master[1] = Cvar_Get("sv_master2", "directory.ioquake3.org", 0);
+#endif
 	for(index = 2; index < MAX_MASTER_SERVERS; index++)
 		sv_master[index] = Cvar_Get(va("sv_master%d", index + 1), "", CVAR_ARCHIVE);
 

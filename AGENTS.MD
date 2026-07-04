@@ -20,9 +20,13 @@ plays Quake III Arena, Open Arena, and Team Arena from SD card data.
 | `make oa` | `build_oa/boot.dol` (Open Arena) |
 | `make ta` | `build_ta/boot.dol` (Team Arena) |
 | `make debug` / `oa-debug` / `ta-debug` | debug build with SD logging |
-| `make 240p` / `make 240p-pal` | 240p NTSC / 264p PAL output |
 | `make all-flavors` | Q3A + OA + TA in one go |
 | `make clean` | wipe all `build*/` dirs |
+
+Video mode (default / 240p NTSC / 264p PAL) is chosen at **boot**, not build
+time — every DOL contains all three; a d-pad prompt after controller init
+(UP/LEFT/RIGHT, 10s timeout → default) picks one. See
+`Wii_VideoModeBootPrompt()` in `code/sys/wii_main.c`.
 
 Default build (`make dol`) is **native GX renderer + native-PPC JIT QVMs +
 `WII_MAXFPS=60`** — no flags needed. Escape hatches:

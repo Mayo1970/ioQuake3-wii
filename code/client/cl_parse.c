@@ -120,6 +120,10 @@ void CL_ParsePacketEntities( msg_t *msg, clSnapshot_t *oldframe, clSnapshot_t *n
 		}
 
 		if ( msg->readcount > msg->cursize ) {
+#ifdef CLASSIC
+			wii_diag_sync( "[CLASSIC] entity parse overrun: compat=%d newnum=%d readcount=%d cursize=%d bit=%d\n",
+				msg->compat, newnum, msg->readcount, msg->cursize, msg->bit );
+#endif
 			Com_Error (ERR_DROP,"CL_ParsePacketEntities: end of message");
 		}
 
@@ -211,6 +215,10 @@ void CL_ParseSnapshot( msg_t *msg ) {
 	// get the reliable sequence acknowledge number
 	// NOTE: now sent with all server to client messages
 	//clc.reliableAcknowledge = MSG_ReadLong( msg );
+#ifdef CLASSIC
+	if(msg->compat)
+		clc.reliableAcknowledge = MSG_ReadLong( msg );
+#endif
 
 	// read in the new snapshot to a temporary buffer
 	// we will only copy to cl.snap if it is valid
@@ -486,7 +494,12 @@ void CL_ParseGamestate( msg_t *msg ) {
 		if ( cmd == svc_EOF ) {
 			break;
 		}
-		
+#ifdef CLASSIC
+		if ( msg->compat && cmd <= 0 ) {
+			break;
+		}
+#endif
+
 		if ( cmd == svc_configstring ) {
 			int		len;
 
@@ -496,6 +509,18 @@ void CL_ParseGamestate( msg_t *msg ) {
 			}
 			s = MSG_ReadBigString( msg );
 			len = strlen( s );
+
+#ifdef CLASSIC
+			// Forensics (debug builds): dump the low control slots of a
+			// proto-43 gamestate. Pins the retail CS_* layout (which slot
+			// holds the "baseq3-1"-style version string, which holds the
+			// level-start-time ms stamp) before hardcoding it in
+			// bg_public.h - 12-15 is SDK model knowledge, the DC is
+			// 1.13n-era. See PS4 CLASSIC_CROSSPLAY.MD §K1.
+			if ( clc.compat && i >= 2 && i < 32 && s[0] ) {
+				wii_diag( "[CLASSIC] gamestate cs %d = \"%s\"\n", i, s );
+			}
+#endif
 
 			if ( len + 1 + cl.gameState.dataCount > MAX_GAMESTATE_CHARS ) {
 				Com_Error( ERR_DROP, "MAX_GAMESTATE_CHARS exceeded" );
@@ -518,9 +543,24 @@ void CL_ParseGamestate( msg_t *msg ) {
 		}
 	}
 
+	// proto-43's trailing Long after EOF is the checksumFeed slot (observed -1
+	// on real DC/1.16n servers), NOT a clientNum. The client learns its real
+	// clientNum from the snapshot playerstate, so leave clc.clientNum at its
+	// default here (matches the verified PS3/PS4 behaviour).
+#ifdef CLASSIC
+	if(!msg->compat)
+#endif
 	clc.clientNum = MSG_ReadLong(msg);
 	// read the checksum feed
+#ifdef CLASSIC
+	if(!clc.demoplaying || !msg->compat)
+#endif
 	clc.checksumFeed = MSG_ReadLong( msg );
+
+#ifdef CLASSIC
+	wii_diag_sync( "[CLASSIC] gamestate parsed: compat=%d clientNum=%d checksumFeed=%d cmdSeq=%d\n",
+		msg->compat, clc.clientNum, clc.checksumFeed, clc.serverCommandSequence );
+#endif
 
 	// save old gamedir
 	Cvar_VariableStringBuffer("fs_game", oldGame, sizeof(oldGame));
@@ -847,6 +887,14 @@ void CL_ParseCommandString( msg_t *msg ) {
 
 	index = seq & (MAX_RELIABLE_COMMANDS-1);
 	Q_strncpyz( clc.serverCommands[ index ], s, sizeof( clc.serverCommands[ index ] ) );
+#ifdef CLASSIC
+	// Forensics: dump the raw scoreboard string the (foreign) server sends so we
+	// can see its actual field layout vs our 14-field CG_ParseScores reader.
+	if ( !Q_strncmp( s, "scores", 6 ) ) {
+		wii_diag_sync( "[CLASSIC] scores seq=%d compat=%d len=%d: %s\n",
+			seq, msg->compat, (int)strlen( s ), s );
+	}
+#endif
 }
 
 
@@ -864,25 +912,45 @@ void CL_ParseServerMessage( msg_t *msg ) {
 		Com_Printf ("------------------\n");
 	}
 
+#ifdef CLASSIC
+	if(!msg->compat) {
+#endif
 	MSG_Bitstream(msg);
 
 	// get the reliable sequence acknowledge number
 	clc.reliableAcknowledge = MSG_ReadLong( msg );
-	// 
+	//
 	if ( clc.reliableAcknowledge < clc.reliableSequence - MAX_RELIABLE_COMMANDS ) {
 		clc.reliableAcknowledge = clc.reliableSequence;
 	}
+#ifdef CLASSIC
+	}
+#endif
 
 	//
 	// parse the message
 	//
 	while ( 1 ) {
 		if ( msg->readcount > msg->cursize ) {
+#ifdef CLASSIC
+			if(msg->compat) {
+				/* Proto-43 has no svc_EOF; loop overrun is normal. */
+				Com_DPrintf("WARNING: CL_ParseServerMessage: read past end of server message\n");
+				break;
+			}
+#endif
 			Com_Error (ERR_DROP,"CL_ParseServerMessage: read past end of server message");
 			break;
 		}
 
 		cmd = MSG_ReadByte( msg );
+
+#ifdef CLASSIC
+		if(msg->compat && cmd <= 0) {
+			SHOWNET( msg, "END OF MESSAGE" );
+			break;
+		}
+#endif
 
 		if (cmd == svc_EOF) {
 			SHOWNET( msg, "END OF MESSAGE" );

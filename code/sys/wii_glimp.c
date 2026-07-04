@@ -20,6 +20,8 @@ static void        *s_gp_fifo     = NULL;
 static int          s_fb_index    = 0;
 static qboolean     s_initialised = qfalse;
 
+int wii_video_mode_choice = 0; /* 0=default, 1=240p NTSC, 2=264p PAL */
+
 #if defined(WII_GX_PROFILE) && WII_GX_PROFILE
 #include <ogc/lwp_watchdog.h>
 
@@ -96,15 +98,11 @@ qboolean Wii_GX_Init(void)
         return qtrue;
 
     VIDEO_Init();
-#if defined(WII_240P) && WII_240P
-#  if defined(WII_PAL) && WII_PAL
-    s_rmode = &TVPal264Ds;
-#  else
-    s_rmode = &TVNtsc240Ds;
-#  endif
-#else
-    s_rmode = VIDEO_GetPreferredMode(NULL);
-#endif
+    switch (wii_video_mode_choice) {
+        case 1:  s_rmode = &TVNtsc240Ds; break;
+        case 2:  s_rmode = &TVPal264Ds;  break;
+        default: s_rmode = VIDEO_GetPreferredMode(NULL); break;
+    }
 
     s_framebuf[0] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(s_rmode));
     s_framebuf[1] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(s_rmode));

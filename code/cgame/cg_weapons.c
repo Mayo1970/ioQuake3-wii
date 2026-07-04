@@ -2038,7 +2038,18 @@ static void CG_ShotgunPattern( vec3_t origin, vec3_t origin2, int seed, int othe
 
 	// derive the right and up vectors from the forward vector, because
 	// the client won't have any other information
+#ifdef CLASSIC
+	// Retail 1.16n servers send origin2 as an absolute trace endpoint
+	// (muzzle + forward*4096), not the scaled direction modern servers send.
+	// Normalizing it raw makes forward point from the world origin to the
+	// shooter's position -> pellets spray in a nonsense direction. The
+	// endpoint-era fossil survives in CG_ShotgunFire's smoke-puff math
+	// (origin2 - trBase) even in the 1.32 GPL source.
+	VectorSubtract( origin2, origin, forward );
+	VectorNormalize( forward );
+#else
 	VectorNormalize2( origin2, forward );
+#endif
 	PerpendicularVector( right, forward );
 	CrossProduct( forward, right, up );
 

@@ -110,7 +110,9 @@ int Pickup_Powerup( gentity_t *ent, gentity_t *other ) {
 		}
 
 		// anti-reward
+#ifndef CLASSIC
 		client->ps.persistant[PERS_PLAYEREVENTS] ^= PLAYEREVENT_DENIEDREWARD;
+#endif
 	}
 	return RESPAWN_POWERUP;
 }

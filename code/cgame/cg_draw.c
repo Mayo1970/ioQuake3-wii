@@ -1963,19 +1963,15 @@ static void CG_DrawCrosshair3D(void)
 	}
 	hShader = cgs.media.crosshairShader[ ca % NUM_CROSSHAIRS ];
 
-	// Use a different method rendering the crosshair so players don't see two of them when
-	// focusing their eyes at distant objects with high stereo separation
-	// We are going to trace to the next shootable object and place the crosshair in front of it.
-
-	// first get all the important renderer information
+	// Stereo crosshair: trace to next shootable object, avoid double-vision.
 	trap_Cvar_VariableStringBuffer("r_zProj", rendererinfos, sizeof(rendererinfos));
 	zProj = atof(rendererinfos);
 	trap_Cvar_VariableStringBuffer("r_stereoSeparation", rendererinfos, sizeof(rendererinfos));
 	stereoSep = zProj / atof(rendererinfos);
-	
+
 	xmax = zProj * tan(cg.refdef.fov_x * M_PI / 360.0f);
-	
-	// let the trace run through until a change in stereo separation of the crosshair becomes less than one pixel.
+
+	// Run trace until stereo separation < 1 pixel.
 	maxdist = cgs.glconfig.vidWidth * stereoSep * zProj / (2 * xmax);
 	VectorMA(cg.refdef.vieworg, maxdist, cg.refdef.viewaxis[0], endpos);
 	CG_Trace(&trace, cg.refdef.vieworg, NULL, NULL, endpos, 0, MASK_SHOT);

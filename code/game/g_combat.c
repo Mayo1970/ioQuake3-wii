@@ -31,6 +31,11 @@ ScorePlum
 ============
 */
 void ScorePlum( gentity_t *ent, vec3_t origin, int score ) {
+#ifdef CLASSIC
+	// EV_SCOREPLUM is not in the retail proto-43 event space; a retail
+	// cgame would fatal on the unknown event number.
+	(void)ent; (void)origin; (void)score;
+#else
 	gentity_t *plum;
 
 	plum = G_TempEntity( origin, EV_SCOREPLUM );
@@ -40,6 +45,7 @@ void ScorePlum( gentity_t *ent, vec3_t origin, int score ) {
 	//
 	plum->s.otherEntityNum = ent->s.number;
 	plum->s.time = score;
+#endif
 }
 
 /*
@@ -384,10 +390,13 @@ void CheckAlmostCapture( gentity_t *self, gentity_t *attacker ) {
 			// if the player was *very* close
 			VectorSubtract( self->client->ps.origin, ent->s.origin, dir );
 			if ( VectorLength(dir) < 200 ) {
+#ifndef CLASSIC
+				// retail 1.16n has no PLAYEREVENTS slot (see bg_public.h)
 				self->client->ps.persistant[PERS_PLAYEREVENTS] ^= PLAYEREVENT_HOLYSHIT;
 				if ( attacker->client ) {
 					attacker->client->ps.persistant[PERS_PLAYEREVENTS] ^= PLAYEREVENT_HOLYSHIT;
 				}
+#endif
 			}
 		}
 	}
@@ -417,10 +426,12 @@ void CheckAlmostScored( gentity_t *self, gentity_t *attacker ) {
 			// if the player was *very* close
 			VectorSubtract( self->client->ps.origin, ent->s.origin, dir );
 			if ( VectorLength(dir) < 200 ) {
+#ifndef CLASSIC
 				self->client->ps.persistant[PERS_PLAYEREVENTS] ^= PLAYEREVENT_HOLYSHIT;
 				if ( attacker->client ) {
 					attacker->client->ps.persistant[PERS_PLAYEREVENTS] ^= PLAYEREVENT_HOLYSHIT;
 				}
+#endif
 			}
 		}
 	}
@@ -521,7 +532,9 @@ void player_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int
 				attacker->client->rewardTime = level.time + REWARD_SPRITE_TIME;
 
 				// also play humiliation on target
+#ifndef CLASSIC
 				self->client->ps.persistant[PERS_PLAYEREVENTS] ^= PLAYEREVENT_GAUNTLETREWARD;
+#endif
 			}
 
 			// check for two kills in a short amount of time
@@ -963,7 +976,9 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 		} else {
 			attacker->client->ps.persistant[PERS_HITS]++;
 		}
+#ifndef CLASSIC
 		attacker->client->ps.persistant[PERS_ATTACKEE_ARMOR] = (targ->health<<8)|(client->ps.stats[STAT_ARMOR]);
+#endif
 	}
 
 	// always give half damage if hurting self

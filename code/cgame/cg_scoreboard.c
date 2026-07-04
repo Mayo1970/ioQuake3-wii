@@ -59,16 +59,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define SB_TIME_X			(SB_SCORELINE_X + 17 * BIGCHAR_WIDTH + 8) // width 5
 #define SB_NAME_X			(SB_SCORELINE_X + 22 * BIGCHAR_WIDTH) // width 15
 
-// The new and improved score board
-//
-// In cases where the number of clients is high, the score board heads are interleaved
-// here's the layout
-
-//
-//	0   32   80  112  144   240  320  400   <-- pixel position
-//  bot head bot head score ping time name
-//  
-//  wins/losses are drawn on bot icon now
+// Scoreboard layout: 0=bot head, 32=score, 80=rating, 112=ping, 144=time, 240=name.
 
 static qboolean localClient; // true if local client has been displayed
 

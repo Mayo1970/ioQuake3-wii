@@ -145,8 +145,7 @@ void SV_GetChallenge(netadr_t from)
 	challenge->time = svs.time;
 
 #ifndef STANDALONE
-	// Drop the authorize stuff if this client is coming in via v6 as the auth server does not support ipv6.
-	// Drop also for addresses coming in on local LAN and for stand-alone games independent from id's assets.
+	// Skip auth for IPv6, LAN, or standalone (auth server limitation).
 	if(challenge->adr.type == NA_IP && !com_standalone->integer && !Sys_IsLANAddress(from))
 	{
 		// look up the authorize server's IP
@@ -677,6 +676,11 @@ void SV_DropClient( client_t *drop, const char *reason ) {
 	VM_Call( gvm, GAME_CLIENT_DISCONNECT, drop - svs.clients );
 
 	// add the disconnect command
+#ifdef CLASSIC
+	if(drop->compat)
+		SV_SendServerCommand( drop, "disconnect %s", reason);
+	else
+#endif
 	SV_SendServerCommand( drop, "disconnect \"%s\"", reason);
 
 	if ( isBot ) {
@@ -734,10 +738,21 @@ static void SV_SendClientGameState( client_t *client ) {
 	// gamestate message was not just sent, forcing a retransmit
 	client->gamestateMessageNum = client->netchan.outgoingSequence;
 
+#ifdef CLASSIC
+	if(client->compat)
+		MSG_InitOOB(&msg, msgBuffer, sizeof( msgBuffer ));
+	else
+#endif
 	MSG_Init( &msg, msgBuffer, sizeof( msgBuffer ) );
+#ifdef CLASSIC
+	msg.compat = client->compat;
+#endif
 
 	// NOTE, MRE: all server->client messages now acknowledge
 	// let the client know which reliable clientCommands we have received
+#ifdef CLASSIC
+	if(!msg.compat)
+#endif
 	MSG_WriteLong( &msg, client->lastClientCommand );
 
 	// send any server commands waiting to be sent first.
@@ -767,11 +782,27 @@ static void SV_SendClientGameState( client_t *client ) {
 			continue;
 		}
 		MSG_WriteByte( &msg, svc_baseline );
+#ifdef CLASSIC
+		if ( msg.compat ) {
+			// retail event numbers on the wire (tables in msg.c)
+			entityState_t baseC = *base;
+			Classic_TranslateEntityToRetail( &baseC );
+			MSG_WriteDeltaEntity( &msg, &nullstate, &baseC, qtrue );
+		} else
+#endif
 		MSG_WriteDeltaEntity( &msg, &nullstate, base, qtrue );
 	}
 
+#ifdef CLASSIC
+	if(msg.compat)
+		MSG_WriteByte( &msg, 0 );
+	else
+#endif
 	MSG_WriteByte( &msg, svc_EOF );
 
+#ifdef CLASSIC
+	if(!msg.compat)
+#endif
 	MSG_WriteLong( &msg, client - svs.clients);
 
 	// write the checksum feed
@@ -1042,6 +1073,9 @@ int SV_WriteDownloadToClient(client_t *cl, msg_t *msg)
 			MSG_WriteByte( msg, svc_download );
 			MSG_WriteShort( msg, 0 ); // client is expecting block zero
 			MSG_WriteLong( msg, -1 ); // illegal file size
+#ifdef CLASSIC
+			if(!msg->compat)
+#endif
 			MSG_WriteString( msg, errorMessage );
 
 			*cl->downloadName = 0;
@@ -1189,13 +1223,27 @@ int SV_SendDownloadMessages(void)
 		
 		if(cl->state && *cl->downloadName)
 		{
-			MSG_Init(&msg, msgBuffer, sizeof(msgBuffer));
-			MSG_WriteLong(&msg, cl->lastClientCommand);
-			
+#ifdef CLASSIC
+			if(cl->compat)
+			{
+				MSG_InitOOB(&msg, msgBuffer, sizeof(msgBuffer));
+				msg.compat = qtrue;
+				SV_WriteDummySnapshotToClient(cl, &msg);
+			}
+			else
+#endif
+			{
+				MSG_Init(&msg, msgBuffer, sizeof(msgBuffer));
+				MSG_WriteLong(&msg, cl->lastClientCommand);
+			}
+
 			retval = SV_WriteDownloadToClient(cl, &msg);
-				
+
 			if(retval)
 			{
+#ifdef CLASSIC
+				if(!msg.compat)
+#endif
 				MSG_WriteByte(&msg, svc_EOF);
 				SV_Netchan_Transmit(cl, &msg);
 				numDLs += retval;
@@ -1245,28 +1293,39 @@ static void SV_VerifyPaks_f( client_t *cl ) {
 
 		nChkSum1 = nChkSum2 = 0;
 		// we run the game, so determine which cgame and ui the client "should" be running
-		bGood = (FS_FileIsInPAK("vm/cgame.qvm", &nChkSum1) == 1);
+#ifdef CLASSIC
+		bGood = (FS_FileIsInPAK("vm/cgame.qvm", cl->compat, &nChkSum1) == 1);
 		if (bGood)
-			bGood = (FS_FileIsInPAK("vm/ui.qvm", &nChkSum2) == 1);
+			bGood = (FS_FileIsInPAK("vm/ui.qvm", cl->compat, &nChkSum2) == 1);
+#else
+		bGood = (FS_FileIsInPAK("vm/cgame.qvm", qfalse, &nChkSum1) == 1);
+		if (bGood)
+			bGood = (FS_FileIsInPAK("vm/ui.qvm", qfalse, &nChkSum2) == 1);
+#endif
 
 		nClientPaks = Cmd_Argc();
 
 		// start at arg 2 ( skip serverId cl_paks )
 		nCurArg = 1;
 
-		pArg = Cmd_Argv(nCurArg++);
-		if(!pArg) {
-			bGood = qfalse;
-		}
-		else
+#ifdef CLASSIC
+		if(!cl->compat)
+#endif
 		{
-			// https://zerowing.idsoftware.com/bugzilla/show_bug.cgi?id=475
-			// we may get incoming cp sequences from a previous checksumFeed, which we need to ignore
-			// since serverId is a frame count, it always goes up
-			if (atoi(pArg) < sv.checksumFeedServerId)
+			pArg = Cmd_Argv(nCurArg++);
+			if(!pArg) {
+				bGood = qfalse;
+			}
+			else
 			{
-				Com_DPrintf("ignoring outdated cp command from client %s\n", cl->name);
-				return;
+				// https://zerowing.idsoftware.com/bugzilla/show_bug.cgi?id=475
+				// we may get incoming cp sequences from a previous checksumFeed, which we need to ignore
+				// since serverId is a frame count, it always goes up
+				if (atoi(pArg) < sv.checksumFeedServerId)
+				{
+					Com_DPrintf("ignoring outdated cp command from client %s\n", cl->name);
+					return;
+				}
 			}
 		}
 	
@@ -1274,8 +1333,12 @@ static void SV_VerifyPaks_f( client_t *cl ) {
 		while (bGood) {
 
 			// must be at least 6: "cl_paks cgame ui @ firstref ... numChecksums"
-			// numChecksums is encoded
+			// numChecksums is encoded; proto 43 (compat) omits the trailing count
+#ifdef CLASSIC
+			if ((cl->compat && nClientPaks < 5) || (!cl->compat && nClientPaks < 6)) {
+#else
 			if (nClientPaks < 6) {
+#endif
 				bGood = qfalse;
 				break;
 			}
@@ -1298,12 +1361,23 @@ static void SV_VerifyPaks_f( client_t *cl ) {
 				break;
 			}
 			// store checksums since tokenization is not re-entrant
-			for (i = 0; nCurArg < nClientPaks; i++) {
-				nClientChkSum[i] = atoi(Cmd_Argv(nCurArg++));
-			}
+#ifdef CLASSIC
+			// proto 43: no trailing encoded count — read all remaining args
+			if(cl->compat) {
+				for (i = 0; nCurArg < nClientPaks; i++) {
+					nClientChkSum[i] = atoi(Cmd_Argv(nCurArg++));
+				}
+				nClientPaks = i;
+			} else
+#endif
+			{
+				for (i = 0; nCurArg < nClientPaks; i++) {
+					nClientChkSum[i] = atoi(Cmd_Argv(nCurArg++));
+				}
 
-			// store number to compare against (minus one cause the last is the number of checksums)
-			nClientPaks = i - 1;
+				// store number to compare against (minus one cause the last is the number of checksums)
+				nClientPaks = i - 1;
+			}
 
 			// make sure none of the client check sums are the same
 			// so the client can't send 5 the same checksums
@@ -1322,7 +1396,12 @@ static void SV_VerifyPaks_f( client_t *cl ) {
 			if (bGood == qfalse)
 				break;
 
-			// get the pure checksums of the pk3 files loaded by the server
+			// get the checksums of the pk3 files loaded by the server
+#ifdef CLASSIC
+			if(cl->compat)
+				pPaks = FS_LoadedPakChecksums();
+			else
+#endif
 			pPaks = FS_LoadedPakPureChecksums();
 			Cmd_TokenizeString( pPaks );
 			nServerPaks = Cmd_Argc();
@@ -1349,15 +1428,20 @@ static void SV_VerifyPaks_f( client_t *cl ) {
 				break;
 			}
 
-			// check if the number of checksums was correct
-			nChkSum1 = sv.checksumFeed;
-			for (i = 0; i < nClientPaks; i++) {
-				nChkSum1 ^= nClientChkSum[i];
-			}
-			nChkSum1 ^= nClientPaks;
-			if (nChkSum1 != nClientChkSum[nClientPaks]) {
-				bGood = qfalse;
-				break;
+#ifdef CLASSIC
+			if(!cl->compat)
+#endif
+			{
+				// check if the number of checksums was correct (not sent in proto 43)
+				nChkSum1 = sv.checksumFeed;
+				for (i = 0; i < nClientPaks; i++) {
+					nChkSum1 ^= nClientChkSum[i];
+				}
+				nChkSum1 ^= nClientPaks;
+				if (nChkSum1 != nClientChkSum[nClientPaks]) {
+					bGood = qfalse;
+					break;
+				}
 			}
 
 			// break out
@@ -1549,6 +1633,9 @@ typedef struct {
 static ucmd_t ucmds[] = {
 	{"userinfo", SV_UpdateUserinfo_f},
 	{"disconnect", SV_Disconnect_f},
+#ifdef CLASSIC
+	{"cl_paks", SV_VerifyPaks_f},
+#endif
 	{"cp", SV_VerifyPaks_f},
 	{"vdr", SV_ResetPureClient_f},
 	{"download", SV_BeginDownload_f},
@@ -1635,8 +1722,7 @@ static qboolean SV_ClientCommand( client_t *cl, msg_t *msg ) {
 		cl->state >= CS_ACTIVE &&
 		sv_floodProtect->integer && 
 		svs.time < cl->nextReliableTime ) {
-		// ignore any other text messages from this client but let them keep playing
-		// TTimo - moved the ignored verbose to the actual processing in SV_ExecuteClientCommand, only printing if the core doesn't intercept
+		// Ignore text; let client keep playing. Details deferred to SV_ExecuteClientCommand.
 		clientOk = qfalse;
 	} 
 
@@ -1720,6 +1806,11 @@ static void SV_UserMove( client_t *cl, msg_t *msg, qboolean delta ) {
 	oldcmd = &nullcmd;
 	for ( i = 0 ; i < cmdCount ; i++ ) {
 		cmd = &cmds[i];
+#ifdef CLASSIC
+		if(cl->compat)
+			MSG_ReadDeltaUsercmd( msg, oldcmd, cmd );
+		else
+#endif
 		MSG_ReadDeltaUsercmdKey( msg, key, oldcmd, cmd );
 		oldcmd = cmd;
 	}
@@ -1911,6 +2002,12 @@ void SV_ExecuteClientMessage( client_t *cl, msg_t *msg ) {
 	int			c;
 	int			serverId;
 
+#ifdef CLASSIC
+	msg->compat = cl->compat;
+	if(msg->compat)
+		msg->bit = msg->readcount << 3;
+	if(!msg->compat)
+#endif
 	MSG_Bitstream(msg);
 
 	serverId = MSG_ReadLong( msg );
@@ -1977,6 +2074,10 @@ void SV_ExecuteClientMessage( client_t *cl, msg_t *msg ) {
 	do {
 		c = MSG_ReadByte( msg );
 
+#ifdef CLASSIC
+		if ( msg->compat && c == -1 )
+			c = clc_EOF;
+#endif
 		if ( c == clc_EOF ) {
 			break;
 		}

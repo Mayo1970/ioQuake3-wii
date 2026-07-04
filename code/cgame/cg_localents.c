@@ -389,15 +389,7 @@ static void CG_AddMoveScaleFade( localEntity_t *le ) {
 }
 
 
-/*
-===================
-CG_AddScaleFade
-
-For rocket smokes that hang in place, fade out, and are
-removed if the view passes through them.
-There are often many of these, so it needs to be simple.
-===================
-*/
+// Rocket smoke: hangs in place, fades, removed if view passes through.
 static void CG_AddScaleFade( localEntity_t *le ) {
 	refEntity_t	*re;
 	float		c;

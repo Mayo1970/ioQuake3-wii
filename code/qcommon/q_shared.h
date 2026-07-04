@@ -1261,10 +1261,10 @@ typedef struct playerState_s {
 
 // usercmd_t is sent to the server each client frame
 typedef struct usercmd_s {
-	int				serverTime;
-	int				angles[3];
-	int 			buttons;
-	byte			weapon;           // weapon 
+	int			serverTime;
+	int			angles[3];
+	int			buttons;
+	byte		weapon;           // weapon
 	signed char	forwardmove, rightmove, upmove;
 } usercmd_t;
 

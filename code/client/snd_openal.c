@@ -950,9 +950,7 @@ static void S_AL_NewLoopMaster(src_t *rmSource, qboolean iskilled)
 				}
 				else
 				{
-					// second case: all loops using this sound have stopped due to listener being of of range,
-					// and now the inactive master gets deleted. Just move over the soundpos settings to the
-					// new master.
+					// Inactive master deleted: move soundpos to new master.
 					curSource->lastTimePos = rmSource->lastTimePos;
 					curSource->lastSampleTime = rmSource->lastSampleTime;
 				}

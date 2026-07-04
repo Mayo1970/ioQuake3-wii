@@ -1885,9 +1885,19 @@ void CG_Init( int serverMessageNum, int serverCommandSequence, int clientNum ) {
 
 	// check version
 	s = CG_ConfigString( CS_GAME_VERSION );
+#ifdef CLASSIC
+	// proto-43 servers report their own CS_GAME_VERSION (empty on DC 1.13n,
+	// "BaseQ3-1" on Q3 1.16n, etc.) which won't match our GAME_VERSION
+	// ("baseq3-1"). The protocol version already gates compatibility, so during
+	// crossplay we must NOT reject on the version-string mismatch — just note it.
+	if ( *s && strcmp( s, GAME_VERSION ) ) {
+		CG_Printf( "CLASSIC: server game version '%s' != '%s' (ignored)\n", s, GAME_VERSION );
+	}
+#else
 	if ( strcmp( s, GAME_VERSION ) ) {
 		CG_Error( "Client/Server game mismatch: %s/%s", GAME_VERSION, s );
 	}
+#endif
 
 	s = CG_ConfigString( CS_LEVEL_START_TIME );
 	cgs.levelStartTime = atoi( s );

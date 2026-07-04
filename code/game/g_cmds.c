@@ -71,17 +71,29 @@ void DeathmatchScoreboardMessage( gentity_t *ent ) {
 		}
 		perfect = ( cl->ps.persistant[PERS_RANK] == 0 && cl->ps.persistant[PERS_KILLED] == 0 ) ? 1 : 0;
 
+#ifdef CLASSIC
+		// Retail 1.16n "scores" is 6 fields per player (client score ping
+		// time scoreFlags powerups) — proto-43 peers (Dreamcast, Q3 1.16n)
+		// parse exactly that.  Our cgame's CG_ParseScores stride-detects
+		// 6 vs 14, so it reads either form.
+		(void)accuracy; (void)perfect;
+		Com_sprintf (entry, sizeof(entry),
+			" %i %i %i %i %i %i", level.sortedClients[i],
+			cl->ps.persistant[PERS_SCORE], ping, (level.time - cl->pers.enterTime)/60000,
+			scoreFlags, g_entities[level.sortedClients[i]].s.powerups);
+#else
 		Com_sprintf (entry, sizeof(entry),
 			" %i %i %i %i %i %i %i %i %i %i %i %i %i %i", level.sortedClients[i],
 			cl->ps.persistant[PERS_SCORE], ping, (level.time - cl->pers.enterTime)/60000,
-			scoreFlags, g_entities[level.sortedClients[i]].s.powerups, accuracy, 
+			scoreFlags, g_entities[level.sortedClients[i]].s.powerups, accuracy,
 			cl->ps.persistant[PERS_IMPRESSIVE_COUNT],
 			cl->ps.persistant[PERS_EXCELLENT_COUNT],
-			cl->ps.persistant[PERS_GAUNTLET_FRAG_COUNT], 
-			cl->ps.persistant[PERS_DEFEND_COUNT], 
-			cl->ps.persistant[PERS_ASSIST_COUNT], 
+			cl->ps.persistant[PERS_GAUNTLET_FRAG_COUNT],
+			cl->ps.persistant[PERS_DEFEND_COUNT],
+			cl->ps.persistant[PERS_ASSIST_COUNT],
 			perfect,
 			cl->ps.persistant[PERS_CAPTURES]);
+#endif
 		j = strlen(entry);
 		if (stringlength + j >= sizeof(string))
 			break;
@@ -299,6 +311,7 @@ void Cmd_Give_f (gentity_t *ent)
 		ent->client->ps.persistant[PERS_GAUNTLET_FRAG_COUNT]++;
 		return;
 	}
+#ifndef CLASSIC
 	if (Q_stricmp(name, "defend") == 0) {
 		ent->client->ps.persistant[PERS_DEFEND_COUNT]++;
 		return;
@@ -307,6 +320,7 @@ void Cmd_Give_f (gentity_t *ent)
 		ent->client->ps.persistant[PERS_ASSIST_COUNT]++;
 		return;
 	}
+#endif
 
 	// spawn a specific item right on the player
 	if ( !give_all ) {
@@ -640,7 +654,7 @@ void SetTeam( gentity_t *ent, const char *s ) {
 	// get and distribute relevant parameters
 	ClientUserinfoChanged( clientNum );
 
-	// client hasn't spawned yet, they sent an early team command, teampref userinfo, or g_teamAutoJoin is enabled
+	// Early team cmd or auto-join: defer until spawned.
 	if ( client->pers.connected != CON_CONNECTED ) {
 		return;
 	}

@@ -3749,10 +3749,7 @@ void Item_ListBox_Paint(itemDef_t *item) {
 	qhandle_t optionalImage;
 	listBoxDef_t *listPtr = (listBoxDef_t*)item->typeData;
 
-	// the listbox is horizontal or vertical and has a fixed size scroll bar going either direction
-	// elements are enumerated from the DC and either text or image handles are acquired from the DC as well
-	// textscale is used to size the text, textalignx and textaligny are used to size image elements
-	// there is no clipping available so only the last completely visible item is painted
+	// Listbox: horizontal/vertical, no clipping. textscale/alignx/aligny size text/images.
 	count = DC->feederCount(item->special);
 	// default is vertical if horizontal flag is not here
 	if (item->window.flags & WINDOW_HORIZONTAL) {

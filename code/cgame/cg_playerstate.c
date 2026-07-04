@@ -343,11 +343,18 @@ void CG_CheckLocalSounds( playerState_t *ps, playerState_t *ops ) {
 
 	// reward sounds
 	reward = qfalse;
+#ifndef CLASSIC
+	// Retail 1.16n has no capture/defend/assist awards or PLAYEREVENTS bits;
+	// those persistant[] slots hold reward bookkeeping and accuracy counters
+	// there (see the CLASSIC persEnum_t arm in bg_public.h).  The impressive/
+	// excellent/gauntlet watchers below stay: their names resolve to the
+	// retail slots automatically.
 	if (ps->persistant[PERS_CAPTURES] != ops->persistant[PERS_CAPTURES]) {
 		pushReward(cgs.media.captureAwardSound, cgs.media.medalCapture, ps->persistant[PERS_CAPTURES]);
 		reward = qtrue;
 		//Com_Printf("capture\n");
 	}
+#endif
 	if (ps->persistant[PERS_IMPRESSIVE_COUNT] != ops->persistant[PERS_IMPRESSIVE_COUNT]) {
 #ifdef MISSIONPACK
 		if (ps->persistant[PERS_IMPRESSIVE_COUNT] == 1) {
@@ -390,6 +397,7 @@ void CG_CheckLocalSounds( playerState_t *ps, playerState_t *ops ) {
 		reward = qtrue;
 		//Com_Printf("gauntlet frag\n");
 	}
+#ifndef CLASSIC
 	if (ps->persistant[PERS_DEFEND_COUNT] != ops->persistant[PERS_DEFEND_COUNT]) {
 		pushReward(cgs.media.defendSound, cgs.media.medalDefend, ps->persistant[PERS_DEFEND_COUNT]);
 		reward = qtrue;
@@ -416,6 +424,7 @@ void CG_CheckLocalSounds( playerState_t *ps, playerState_t *ops ) {
 		}
 		reward = qtrue;
 	}
+#endif
 
 	// check for flag pickup
 	if ( cgs.gametype > GT_TEAM ) {

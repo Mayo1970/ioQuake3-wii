@@ -17,6 +17,7 @@
 #include <stdio.h>
 
 #include "wii_input.h"
+#include "wii_usb_hid.h"
 #include "qcommon/q_shared.h"
 #include "qcommon/qcommon.h"
 #include "keycodes.h"
@@ -89,7 +90,6 @@ static const btn_map_t s_wm_buttons[] = {
 static const btn_map_t s_wm_menu_buttons[] = {
     { WPAD_BUTTON_A,              K_ENTER      },
     { WPAD_BUTTON_B,              K_ESCAPE     },
-    { WPAD_BUTTON_PLUS,           K_ESCAPE     },
     { WPAD_BUTTON_1,              K_MOUSE1     },
     { WPAD_BUTTON_UP,             K_UPARROW    },
     { WPAD_BUTTON_DOWN,           K_DOWNARROW  },
@@ -152,7 +152,6 @@ static const btn_map_t s_drc_buttons[] = {
 static const btn_map_t s_drc_menu_buttons[] = {
     { WIIDRC_BUTTON_A,      K_ENTER      },
     { WIIDRC_BUTTON_B,      K_ESCAPE     },
-    { WIIDRC_BUTTON_PLUS,   K_ESCAPE     },
     { WIIDRC_BUTTON_ZR,     K_MOUSE1     },
     { WIIDRC_BUTTON_UP,     K_UPARROW    },
     { WIIDRC_BUTTON_DOWN,   K_DOWNARROW  },
@@ -192,6 +191,7 @@ float wii_ir_aim_y = 0.0f;
 #define CTRL_TYPE_WIIMOTE  2
 #define CTRL_TYPE_CLASSIC  3
 #define CTRL_TYPE_DRC      4   /* Wii U GamePad (tablet), vWii only */
+#define CTRL_TYPE_USB      5   /* wired USB HID pad (Xbox One/PS4/PS3) */
 
 static input_state_t  s_input;
 static qboolean       s_home_pressed   = qfalse;
@@ -203,6 +203,14 @@ static float          s_accum_cy       = 0.0f;
 static short          s_old_axis[4];
 static qboolean       s_old_ltrig      = qfalse;
 static qboolean       s_old_rtrig      = qfalse;
+/* Raw physical state of the button bound to "togglemenu" (Plus/Start),
+ * tracked independently of key_held[]/ReleaseAllKeys() so the menu-table's
+ * K_ESCAPE alias for that button only fires on a genuine release+press
+ * edge, not on the state wipe ReleaseAllKeys() does when the catcher
+ * flips to UI while the button is still physically held. */
+static qboolean       s_wm_plus_prev   = qfalse;
+static qboolean       s_drc_plus_prev  = qfalse;
+static qboolean       s_usb_start_prev = qfalse;
 static int            s_active_ctrl_type = -1;
 
 #if WPAD_ENABLED
@@ -278,7 +286,10 @@ static void InjectCursorStick(s8 x, s8 y, float sensitivity, int deadzone,
 }
 
 #define CTRL_KEY_FIRST  K_JOY1
-#define CTRL_KEY_LAST   K_JOY14   /* highest index used by Classic Controller */
+#define CTRL_KEY_LAST   K_JOY16   /* highest index used by the USB pad's analog triggers */
+
+#define K_JOY_USB_LTRIG K_JOY15
+#define K_JOY_USB_RTRIG K_JOY16
 
 static const char *CtrlTypeCfgName(int type)
 {
@@ -287,6 +298,7 @@ static const char *CtrlTypeCfgName(int type)
     case CTRL_TYPE_WIIMOTE: return "wii_binds_wm.cfg";
     case CTRL_TYPE_CLASSIC: return "wii_binds_cc.cfg";
     case CTRL_TYPE_DRC:     return "wii_binds_drc.cfg";
+    case CTRL_TYPE_USB:     return "wii_binds_usb.cfg";
     default:                return NULL;
     }
 }
@@ -746,6 +758,15 @@ static void DRC_Input_Frame(const struct WiiDRCData *drc, qboolean in_game)
             InjectKey(s_drc_menu_buttons[i].q3key,
                       (drc->button & s_drc_menu_buttons[i].bit) ? qtrue : qfalse);
 
+        {
+            qboolean plus_now = (drc->button & WIIDRC_BUTTON_PLUS) ? qtrue : qfalse;
+            if (plus_now && !s_drc_plus_prev)
+                InjectKey(K_ESCAPE, qtrue);
+            else if (!plus_now && s_drc_plus_prev)
+                InjectKey(K_ESCAPE, qfalse);
+            s_drc_plus_prev = plus_now;
+        }
+
         /* Left stick drives the menu cursor. */
         float lx = DRC_NormAxis(drc->xAxisL);
         float ly = DRC_NormAxis(drc->yAxisL);
@@ -763,6 +784,8 @@ static void DRC_Input_Frame(const struct WiiDRCData *drc, qboolean in_game)
         }
         return;
     }
+
+    s_drc_plus_prev = (drc->button & WIIDRC_BUTTON_PLUS) ? qtrue : qfalse;
 
     for (i = 0; i < (int)DRC_BTN_COUNT; i++)
         InjectKey(s_drc_buttons[i].q3key,
@@ -880,6 +903,15 @@ static void WM_Input_Frame(void)
             InjectKey(s_wm_menu_buttons[i].q3key,
                       (held & s_wm_menu_buttons[i].bit) ? qtrue : qfalse);
 
+        {
+            qboolean plus_now = (held & WPAD_BUTTON_PLUS) ? qtrue : qfalse;
+            if (plus_now && !s_wm_plus_prev)
+                InjectKey(K_ESCAPE, qtrue);
+            else if (!plus_now && s_wm_plus_prev)
+                InjectKey(K_ESCAPE, qfalse);
+            s_wm_plus_prev = plus_now;
+        }
+
         if (has_nunchuk)
             InjectKey(K_MOUSE1,
                       (held & WPAD_NUNCHUK_BUTTON_Z) ? qtrue : qfalse);
@@ -910,6 +942,8 @@ static void WM_Input_Frame(void)
 
         SetWiimoteBindings();
 
+        s_wm_plus_prev = (held & WPAD_BUTTON_PLUS) ? qtrue : qfalse;
+
         for (i = 0; i < (int)WM_BTN_COUNT; i++)
             InjectKey(s_wm_buttons[i].q3key,
                       (held & s_wm_buttons[i].bit) ? qtrue : qfalse);
@@ -924,6 +958,158 @@ static void WM_Input_Frame(void)
 }
 
 #endif /* WPAD_ENABLED */
+
+/* Wired USB HID pad (Xbox One/PS4/PS3) — unconditional, independent of
+   WPAD_ENABLED (a wired USB pad works the same regardless of which native
+   backend the build targets). Buttons come from wii_usb_hid.c's unified
+   virtual-gamepad layout, so this table is brand-independent. */
+static const btn_map_t s_usb_buttons[] = {
+    { USBHID_BTN_A,      K_JOY1  },
+    { USBHID_BTN_B,      K_JOY2  },
+    { USBHID_BTN_X,      K_JOY3  },
+    { USBHID_BTN_Y,      K_JOY4  },
+    { USBHID_BTN_LB,     K_JOY5  },
+    { USBHID_BTN_RB,     K_JOY6  },
+    { USBHID_BTN_BACK,   K_JOY7  },
+    { USBHID_BTN_START,  K_JOY8  },
+    { USBHID_BTN_L3,     K_JOY9  },
+    { USBHID_BTN_R3,     K_JOY10 },
+    { USBHID_BTN_DUP,    K_JOY11 },
+    { USBHID_BTN_DDOWN,  K_JOY12 },
+    { USBHID_BTN_DLEFT,  K_JOY13 },
+    { USBHID_BTN_DRIGHT, K_JOY14 },
+};
+#define USB_BTN_COUNT (sizeof(s_usb_buttons) / sizeof(s_usb_buttons[0]))
+
+static const btn_map_t s_usb_menu_buttons[] = {
+    { USBHID_BTN_A,      K_ENTER      },
+    { USBHID_BTN_B,      K_ESCAPE     },
+    { USBHID_BTN_RB,     K_MOUSE1     },
+    { USBHID_BTN_DUP,    K_UPARROW    },
+    { USBHID_BTN_DDOWN,  K_DOWNARROW  },
+    { USBHID_BTN_DLEFT,  K_LEFTARROW  },
+    { USBHID_BTN_DRIGHT, K_RIGHTARROW },
+};
+#define USB_MENU_BTN_COUNT (sizeof(s_usb_menu_buttons) / sizeof(s_usb_menu_buttons[0]))
+
+#define USB_STICK_DEADZONE 4000   /* raw units out of -32767..32767 */
+
+static void SetUSBBindings(void)
+{
+    if (s_active_ctrl_type == CTRL_TYPE_USB)
+        return;
+
+    qboolean force = SetActiveControllerType(CTRL_TYPE_USB);
+
+    ApplyBind(K_JOY1,          "+moveup",     force); /* A/Cross = jump */
+    ApplyBind(K_JOY2,          "+movedown",   force); /* B/Circle = crouch */
+    ApplyBind(K_JOY3,          "weapnext",    force); /* X/Square */
+    ApplyBind(K_JOY4,          "weapprev",    force); /* Y/Triangle */
+    ApplyBind(K_JOY5,          "+speed",      force); /* LB = walk */
+    ApplyBind(K_JOY6,          "+button2",    force); /* RB = use item */
+    ApplyBind(K_JOY7,          "+scores",     force); /* Back/Share */
+    ApplyBind(K_JOY8,          "togglemenu",  force); /* Start/Options */
+    ApplyBind(K_JOY11,         "+forward",    force); /* D-up */
+    ApplyBind(K_JOY12,         "+back",       force); /* D-down */
+    ApplyBind(K_JOY13,         "+moveleft",   force); /* D-left */
+    ApplyBind(K_JOY14,         "+moveright",  force); /* D-right */
+    ApplyBind(K_JOY_USB_LTRIG, "+zoom",       force); /* LT */
+    ApplyBind(K_JOY_USB_RTRIG, "+attack",     force); /* RT = fire */
+    Key_SetBinding(K_MOUSE1, "");
+}
+
+static void USBPad_Input_Frame(qboolean in_game)
+{
+    int i;
+    u16 buttons = USBHID_GetButtonMask();
+    s16 lx, ly, rx, ry;
+    u8  lt, rt;
+
+    USBHID_GetAxes(&lx, &ly, &rx, &ry, &lt, &rt);
+
+    SetUSBBindings();
+
+    if (!in_game) {
+        for (i = 0; i < (int)USB_MENU_BTN_COUNT; i++)
+            InjectKey(s_usb_menu_buttons[i].q3key,
+                      (buttons & s_usb_menu_buttons[i].bit) ? qtrue : qfalse);
+
+        {
+            qboolean start_now = (buttons & USBHID_BTN_START) ? qtrue : qfalse;
+            if (start_now && !s_usb_start_prev)
+                InjectKey(K_ESCAPE, qtrue);
+            else if (!start_now && s_usb_start_prev)
+                InjectKey(K_ESCAPE, qfalse);
+            s_usb_start_prev = start_now;
+        }
+
+        if (lx > USB_STICK_DEADZONE || lx < -USB_STICK_DEADZONE ||
+            ly > USB_STICK_DEADZONE || ly < -USB_STICK_DEADZONE) {
+            /* No negation on ly here either — same reasoning as the in-game
+               fwd/pitch fix below: USBHID_GetAxes() already returns "up =
+               negative" (converted from the controllers' raw HID Y-axis
+               byte), so negating again would double-invert the cursor. */
+            s_accum_x += ((float)lx / 32767.0f) * MENU_SENSITIVITY_F;
+            s_accum_y += ((float)ly / 32767.0f) * MENU_SENSITIVITY_F;
+            int ox = (int)s_accum_x;
+            int oy = (int)s_accum_y;
+            s_accum_x -= (float)ox;
+            s_accum_y -= (float)oy;
+            if (ox != 0 || oy != 0)
+                Com_QueueEvent(0, SE_MOUSE, ox, oy, 0, NULL);
+        } else {
+            s_accum_x = s_accum_y = 0.0f;
+        }
+        return;
+    }
+
+    s_usb_start_prev = (buttons & USBHID_BTN_START) ? qtrue : qfalse;
+
+    for (i = 0; i < (int)USB_BTN_COUNT; i++)
+        InjectKey(s_usb_buttons[i].q3key,
+                  (buttons & s_usb_buttons[i].bit) ? qtrue : qfalse);
+
+    qboolean l_pressed = lt > TRIGGER_THRESHOLD ? qtrue : qfalse;
+    qboolean r_pressed = rt > TRIGGER_THRESHOLD ? qtrue : qfalse;
+    if (l_pressed != s_old_ltrig) {
+        s_old_ltrig = l_pressed;
+        Com_QueueEvent(0, SE_KEY, K_JOY_USB_LTRIG, l_pressed, 0, NULL);
+    }
+    if (r_pressed != s_old_rtrig) {
+        s_old_rtrig = r_pressed;
+        Com_QueueEvent(0, SE_KEY, K_JOY_USB_RTRIG, r_pressed, 0, NULL);
+    }
+
+    /* No negation here, unlike GC/CC/DRC's -ly/-ry: those read raw hardware
+       sticks where up = positive, so they negate to get "up = negative"
+       (matches j_forward=-0.25's sign convention). USBHID_GetAxes() instead
+       returns values already converted from the controllers' raw HID Y-axis
+       byte (HID convention: up = 0x00, i.e. already negative after the
+       (byte-128)*256 conversion in each brand's _Parse()) — negating again
+       here would double-invert it. Confirmed on hardware: with the extra
+       negation, up/down were swapped on both sticks. */
+    short side  = (lx > -USB_STICK_DEADZONE && lx < USB_STICK_DEADZONE) ? 0 : lx;
+    short fwd   = (ly > -USB_STICK_DEADZONE && ly < USB_STICK_DEADZONE) ? 0 : ly;
+    short yaw   = (rx > -USB_STICK_DEADZONE && rx < USB_STICK_DEADZONE) ? 0 : rx;
+    short pitch = (ry > -USB_STICK_DEADZONE && ry < USB_STICK_DEADZONE) ? 0 : ry;
+
+    if (side != s_old_axis[0]) {
+        Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_SIDE, side, 0, NULL);
+        s_old_axis[0] = side;
+    }
+    if (fwd != s_old_axis[1]) {
+        Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_FORWARD, fwd, 0, NULL);
+        s_old_axis[1] = fwd;
+    }
+    if (yaw != s_old_axis[2] || yaw == 0) {
+        Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_YAW, yaw, 0, NULL);
+        s_old_axis[2] = yaw;
+    }
+    if (pitch != s_old_axis[3] || pitch == 0) {
+        Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_PITCH, pitch, 0, NULL);
+        s_old_axis[3] = pitch;
+    }
+}
 
 static qboolean s_kb_inited  = qfalse;
 static qboolean s_mouse_inited = qfalse;
@@ -1154,6 +1340,25 @@ void Wii_Input_Init(void)
 #endif
     }
 
+    /* Wired USB HID pad init is deliberately NOT called here — see
+       Wii_Input_USBHIDInit() below. */
+}
+
+/* Wired USB HID pad (Xbox One/360/Series/PS3/PS4/DualSense) — unconditional,
+   independent of WPAD_ENABLED, but deliberately NOT initialised from
+   Wii_Input_Init(). That function runs extremely early in main() (before
+   Wii_MountSD settles, before Wii_Net_Init, before GX/Com_Init) alongside
+   PAD_Init/WPAD_Init — both of which exercise IOS paths this port has
+   already proven safe that early (SI hardware access, and WPAD's own
+   carefully-tuned Bluetooth bring-up). The raw ogc/usb.h stack
+   (USB_Initialize/USB_GetDeviceList/USB_OpenDevice/USB_GetDescriptors —
+   all synchronous, blocking IOS calls) has never been exercised by this
+   codebase before this feature, and calling it this early caused a full
+   console hang on real hardware. Call this instead from wii_main.c after
+   Wii_Net_Init() has already proven IOS is fully up and servicing ioctls. */
+void Wii_Input_USBHIDInit(void)
+{
+    USBHID_Init();
 }
 
 void Wii_Input_SetCvars(void)
@@ -1244,6 +1449,32 @@ int Wii_Input_GetCtrlType(void)
 
 void Wii_Input_Frame(void)
 {
+    /* Polls for a hotplugged USB pad (throttled internally to ~1x/sec).
+       Deliberately polling-based, not USB_DeviceChangeNotifyAsync()-based —
+       see wii_usb_hid.c for why. */
+    USBHID_Poll();
+
+    /* Wired USB HID pad takes top priority, ahead of even DRC: DRC presence
+       is already rare (vWii-only, tablet screen on), and a user who plugged
+       in a 3rd-party USB pad has taken an equally deliberate action that
+       should win. */
+    if (USBHID_Active()) {
+        qboolean in_game = (Key_GetCatcher() == 0) ? qtrue : qfalse;
+        if (in_game != s_in_game) {
+            ReleaseAllKeys();
+            s_in_game = in_game;
+        }
+        s_home_pressed = qfalse; /* no HOME-equivalent on 3rd-party pads */
+
+        USBPad_Input_Frame(in_game);
+
+        if (s_kb_inited)
+            USB_Keyboard_Frame();
+        if (s_mouse_inited)
+            USB_Mouse_Frame();
+        return;
+    }
+
 #if WPAD_ENABLED
     /* Wii U GamePad (DRC) takes priority when present (vWii + tablet on).
        WiiDRC_Inited() is false on a real Wii / unpatched fw, so this whole
@@ -1294,4 +1525,5 @@ void Wii_Input_Shutdown(void)
         SaveControllerBindings(s_active_ctrl_type);
         s_active_ctrl_type = -1;
     }
+    USBHID_Shutdown();
 }

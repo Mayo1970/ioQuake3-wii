@@ -4677,7 +4677,7 @@ static qboolean Alias_Parse(char **p) {
         Com_Printf("Too many aliases, last alias replaced!\n");
       }
 
-      // three tokens per line, character name, bot alias, and preferred action a - all purpose, d - defense, o - offense
+      // Parse: name, alias, action (a=all, d=defense, o=offense).
       if (!String_Parse(p, &uiInfo.aliasList[uiInfo.aliasCount].name) || !String_Parse(p, &uiInfo.aliasList[uiInfo.aliasCount].ai) || !String_Parse(p, &uiInfo.aliasList[uiInfo.aliasCount].action)) {
         return qfalse;
       }

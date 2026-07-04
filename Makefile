@@ -4,19 +4,16 @@
 #   make dol              - Q3A release          → build/boot.dol
 #   make oa               - Open Arena release   → build_oa/boot.dol
 #   make ta               - Team Arena release   → build_ta/boot.dol
+#   make modsel           - Mod-select release   → build_modsel/boot.dol
 #   make debug            - Q3A debug            → build/boot.dol
 #   make oa-debug         - OA debug             → build_oa/boot.dol
 #   make ta-debug         - TA debug             → build_ta/boot.dol
-#   make 240p             - Q3A 240p NTSC        → build/boot.dol
-#   make 240p-pal         - Q3A 264p PAL         → build/boot.dol
-#   make oa-240p          - OA 240p NTSC         → build_oa/boot.dol
-#   make oa-240p-pal      - OA 264p PAL          → build_oa/boot.dol
-#   make ta-240p          - TA 240p NTSC         → build_ta/boot.dol
-#   make ta-240p-pal      - TA 264p PAL          → build_ta/boot.dol
-#   make all-flavors          - Q3A + OA + TA release
-#   make all-flavors-240p     - Q3A + OA + TA 240p NTSC
-#   make all-flavors-240p-pal - Q3A + OA + TA 264p PAL
+#   make all-flavors      - Q3A + OA + TA release
 #   make clean            - Clean all build dirs
+#
+# Video mode (480p-ish default / 240p NTSC / 264p PAL) is chosen at BOOT via a
+# d-pad prompt (UP/LEFT/RIGHT, 10s timeout → default) - all three modes are
+# built into every DOL, see Wii_VideoModeBootPrompt() in code/sys/wii_main.c.
 #
 # Renderer backend: native GX is the default. Legacy OpenGX escape hatch:
 #   make WII_OPENGX=1 dol  (run `make clean` first when switching backends —
@@ -35,8 +32,7 @@ include $(DEVKITPPC)/wii_rules
 #---------------------------------------------------------------------------------
 # Convenience phony targets — recurse with the right internal flags
 #---------------------------------------------------------------------------------
-.PHONY: oa ta debug oa-debug ta-debug 240p 240p-pal oa-240p oa-240p-pal ta-240p ta-240p-pal \
-        all-flavors all-flavors-240p all-flavors-240p-pal
+.PHONY: oa ta classic modsel debug oa-debug ta-debug classic-debug modsel-debug all-flavors
 
 .DEFAULT_GOAL := all
 
@@ -46,8 +42,20 @@ oa:
 ta:
 	@$(MAKE) _TA=1 dol
 
+classic:
+	@$(MAKE) _CLASSIC=1 dol
+
+modsel:
+	@$(MAKE) _MODSEL=1 dol
+
 debug:
 	@$(MAKE) _DEBUG=1 dol
+
+classic-debug:
+	@$(MAKE) _CLASSIC=1 _DEBUG=1 dol
+
+modsel-debug:
+	@$(MAKE) _MODSEL=1 _DEBUG=1 dol
 
 oa-debug:
 	@$(MAKE) _OA=1 _DEBUG=1 dol
@@ -55,47 +63,20 @@ oa-debug:
 ta-debug:
 	@$(MAKE) _TA=1 _DEBUG=1 dol
 
-240p:
-	@$(MAKE) _240P=1 dol
-
-240p-pal:
-	@$(MAKE) _240P=1 _PAL=1 dol
-
-oa-240p:
-	@$(MAKE) _OA=1 _240P=1 dol
-
-oa-240p-pal:
-	@$(MAKE) _OA=1 _240P=1 _PAL=1 dol
-
-ta-240p:
-	@$(MAKE) _TA=1 _240P=1 dol
-
-ta-240p-pal:
-	@$(MAKE) _TA=1 _240P=1 _PAL=1 dol
-
 all-flavors:
 	@$(MAKE) dol
 	@$(MAKE) _OA=1 dol
 	@$(MAKE) _TA=1 dol
-
-all-flavors-240p:
-	@$(MAKE) _240P=1 dol
-	@$(MAKE) _OA=1 _240P=1 dol
-	@$(MAKE) _TA=1 _240P=1 dol
-
-all-flavors-240p-pal:
-	@$(MAKE) _240P=1 _PAL=1 dol
-	@$(MAKE) _OA=1 _240P=1 _PAL=1 dol
-	@$(MAKE) _TA=1 _240P=1 _PAL=1 dol
+	@$(MAKE) _CLASSIC=1 dol
 
 #---------------------------------------------------------------------------------
 # Internal build configuration (set by the phony targets above)
 #---------------------------------------------------------------------------------
-_OA    ?= 0
-_TA    ?= 0
-_DEBUG ?= 0
-_240P  ?= 0
-_PAL   ?= 0
+_OA      ?= 0
+_TA      ?= 0
+_CLASSIC ?= 0
+_MODSEL  ?= 0
+_DEBUG   ?= 0
 # Optional: boot directly into a mod. e.g. make WII_FSGAME=missionpack dol
 WII_FSGAME ?=
 # QVM execution: native PPC JIT, DEFAULT since 2026-06-11 (all release and
@@ -135,6 +116,16 @@ else ifeq ($(_OA),1)
   GAMEMODE_FLAGS := -DSTANDALONEOA -DWII_BASEGAME=\"baseoa\"
   DOL_DEST       := /apps/openarena/boot.dol
   DOL_NOTE       := OA data: sd:/quake3/baseoa/pak*.pk3
+else ifeq ($(_CLASSIC),1)
+  BUILD          := build_classic
+  GAMEMODE_FLAGS := -DWII_BASEGAME=\"baseq3\" -DCLASSIC -DLEGACY_PROTOCOL -DPROTOCOL_VERSION=43
+  DOL_DEST       := /apps/ioquake3-classic/boot.dol
+  DOL_NOTE       := Classic data: sd:/quake3/baseq3/pak0-pak2.pk3 + zpack-classic.pk3
+else ifeq ($(_MODSEL),1)
+  BUILD          := build_modsel
+  GAMEMODE_FLAGS := -DWII_BASEGAME=\"baseq3\" -DWII_MODSELECT=1
+  DOL_DEST       := /apps/ioquake3-modselect/boot.dol
+  DOL_NOTE       := Modsel data: sd:/quake3/baseq3/pak0-pak8.pk3 (default Q3A build) + any extra sd:/quake3/<mod>/ folder with at least one *.pk3 (any naming, e.g. Rocket Arena) to pick from
 else
   BUILD          := build
   GAMEMODE_FLAGS := -DWII_BASEGAME=\"baseq3\"
@@ -150,16 +141,6 @@ else
   # "release" make dol still ships every assert() as a live abort() trap and a
   # 24-byte hunkblock_t header on every hunk allocation. Matches upstream ioq3.
   WII_DEBUG_FLAG := -DNDEBUG
-endif
-
-ifeq ($(_240P),1)
-  ifeq ($(_PAL),1)
-    WII_240P_FLAG := -DWII_240P=1 -DWII_PAL=1
-  else
-    WII_240P_FLAG := -DWII_240P=1
-  endif
-else
-  WII_240P_FLAG :=
 endif
 
 ifneq ($(WII_FSGAME),)
@@ -219,7 +200,7 @@ SOURCES     := code \
                code/sys
 PORTDIR     := $(CURDIR)
 
-WII_INPUT_SRC := code/input/wii_input.c
+WII_INPUT_SRC := code/input/wii_input.c code/input/wii_usb_hid.c
 INCLUDES      := code
 
 # OpenGX — prebuilt library + headers vendored under libs/opengx.
@@ -392,7 +373,6 @@ CFLAGS  = $(MACHDEP) \
           $(WII_DEBUG_FLAG) \
           $(GAMEMODE_FLAGS) \
           $(WII_INPUT_FLAGS) \
-          $(WII_240P_FLAG) \
           $(WII_FSGAME_FLAG) \
           $(WII_VM_NATIVE_FLAG) \
           $(WII_NATIVE_GX_FLAG) \
@@ -416,7 +396,8 @@ CFLAGS  = $(MACHDEP) \
           -Icode/botlib \
           -I$(LIBOGC_INC) \
           -DOPENGX_AVAILABLE -I$(OPENGX_INC) \
-          -I$(WIIDRC_INC)
+          -I$(WIIDRC_INC) \
+          -I$(BUILD)
 
 CXXFLAGS = $(CFLAGS)
 
@@ -498,9 +479,23 @@ $(BUILD)/code/qcommon/common.o: code/qcommon/common.c
 	@echo "CC $< [wii-patched]"
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# Bundled pk3 header for CLASSIC build — embedded verbatim as a C array.
+# Generated into $(BUILD)/ so each flavor gets its own copy path; the
+# -I$(BUILD) in CFLAGS makes the #include resolve without an absolute path.
+$(BUILD)/zpack_classic_embedded.h: fixes/baseq3/zpack-classic.pk3
+	@mkdir -p $(dir $@)
+	@echo "GEN $@"
+	@python3 -c "import sys; d=open(sys.argv[1],'rb').read(); n=sys.argv[2]; print('static const unsigned char '+n+'[] = {'+','.join(str(b) for b in d)+'};'); print('static const unsigned int '+n+'_len = '+str(len(d))+';'); print('static const unsigned int '+n+'_csum = '+str(sum(d))+'u;')" fixes/baseq3/zpack-classic.pk3 zpack_classic_data > $@
+
+ifeq ($(_CLASSIC),1)
+WII_MAIN_EXTRA_DEPS := $(BUILD)/zpack_classic_embedded.h
+else
+WII_MAIN_EXTRA_DEPS :=
+endif
+
 # net_ip.c and wii_main.c both inline wii_net.h; rebuild both when the shim changes.
 WII_NET_H := code/sys/wii_net.h
-$(BUILD)/code/sys/wii_main.o: code/sys/wii_main.c $(WII_NET_H)
+$(BUILD)/code/sys/wii_main.o: code/sys/wii_main.c $(WII_NET_H) $(WII_MAIN_EXTRA_DEPS)
 $(BUILD)/code/qcommon/net_ip.o: code/qcommon/net_ip.c $(WII_NET_H)
 	@mkdir -p $(dir $@)
 	@echo "CC $<"
@@ -520,6 +515,6 @@ ifneq ($(DOL_NOTE),)
 endif
 
 clean:
-	@rm -rf build build_oa build_ta
+	@rm -rf build build_oa build_ta build_classic build_modsel
 	@rm -f $(ZLIB_H_COPY) $(ZCONF_H_COPY)
 	@echo "Cleaned."
