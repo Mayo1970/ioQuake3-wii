@@ -530,6 +530,29 @@ void RB_RenderFlares (void) {
 		qglDisable (GL_CLIP_PLANE0);
 	}
 
+#if defined(WII_NATIVE_GX)
+	{
+		/* Build ortho projection directly (GX has no matrix stack). */
+		float left   = backEnd.viewParms.viewportX;
+		float right  = backEnd.viewParms.viewportX + backEnd.viewParms.viewportWidth;
+		float bottom = backEnd.viewParms.viewportY;
+		float top    = backEnd.viewParms.viewportY + backEnd.viewParms.viewportHeight;
+		float znear  = -99999.0f, zfar = 99999.0f;
+		float m[16];
+
+		Com_Memset( m, 0, sizeof( m ) );
+		m[0]  = 2.0f / ( right - left );
+		m[5]  = 2.0f / ( top - bottom );
+		m[10] = -2.0f / ( zfar - znear );
+		m[12] = -( right + left ) / ( right - left );
+		m[13] = -( top + bottom ) / ( top - bottom );
+		m[14] = -( zfar + znear ) / ( zfar - znear );
+		m[15] = 1.0f;
+
+		GXBE_LoadProjectionGL( m );
+		GXBE_LoadIdentityModelview();
+	}
+#else
 	qglPushMatrix();
     qglLoadIdentity();
 	qglMatrixMode( GL_PROJECTION );
@@ -538,6 +561,7 @@ void RB_RenderFlares (void) {
 	qglOrtho( backEnd.viewParms.viewportX, backEnd.viewParms.viewportX + backEnd.viewParms.viewportWidth,
 			  backEnd.viewParms.viewportY, backEnd.viewParms.viewportY + backEnd.viewParms.viewportHeight,
 			  -99999, 99999 );
+#endif
 
 	for ( f = r_activeFlares ; f ; f = f->next ) {
 		if ( f->frameSceneNum == backEnd.viewParms.frameSceneNum
@@ -547,8 +571,10 @@ void RB_RenderFlares (void) {
 		}
 	}
 
+#if !defined(WII_NATIVE_GX)
 	qglPopMatrix();
 	qglMatrixMode( GL_MODELVIEW );
 	qglPopMatrix();
+#endif
 }
 

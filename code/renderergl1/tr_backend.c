@@ -646,6 +646,14 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	// clear the z buffer, set the modelview, etc
 	RB_BeginDrawingView ();
 
+#ifdef WII_DEBUG
+	if ( backEnd.viewParms.isPortal ) {
+		wii_diag( "[portal-draw] numDrawSurfs=%d viewOrigin=(%.1f %.1f %.1f)\n",
+			numDrawSurfs, backEnd.viewParms.or.origin[0], backEnd.viewParms.or.origin[1],
+			backEnd.viewParms.or.origin[2] );
+	}
+#endif
+
 	// draw everything
 	oldEntityNum = -1;
 	backEnd.currentEntity = &tr.worldEntity;

@@ -802,7 +802,12 @@ void *VM_ArgPtr( intptr_t intValue ) {
 		return (void *)(currentVM->dataBase + intValue);
 	}
 	else {
-		return (void *)(currentVM->dataBase + (intValue & currentVM->dataMask));
+		intptr_t offset = intValue & currentVM->dataMask;
+		if ( offset >= currentVM->dataAlloc ) {
+			Com_Error( ERR_DROP, "VM_ArgPtr: %s offset %d out of range (dataAlloc %d)",
+				currentVM->name, (int)offset, currentVM->dataAlloc );
+		}
+		return (void *)(currentVM->dataBase + offset);
 	}
 }
 
@@ -820,7 +825,12 @@ void *VM_ExplicitArgPtr( vm_t *vm, intptr_t intValue ) {
 		return (void *)(vm->dataBase + intValue);
 	}
 	else {
-		return (void *)(vm->dataBase + (intValue & vm->dataMask));
+		intptr_t offset = intValue & vm->dataMask;
+		if ( offset >= vm->dataAlloc ) {
+			Com_Error( ERR_DROP, "VM_ExplicitArgPtr: %s offset %d out of range (dataAlloc %d)",
+				vm->name, (int)offset, vm->dataAlloc );
+		}
+		return (void *)(vm->dataBase + offset);
 	}
 }
 
@@ -1042,11 +1052,14 @@ Executes a block copy operation within currentVM data space
 void VM_BlockCopy(unsigned int dest, unsigned int src, size_t n)
 {
 	unsigned int dataMask = currentVM->dataMask;
+	unsigned int dataAlloc = (unsigned int)currentVM->dataAlloc;
 
 	if ((dest & dataMask) != dest
 	|| (src & dataMask) != src
 	|| ((dest + n) & dataMask) != dest + n
-	|| ((src + n) & dataMask) != src + n)
+	|| ((src + n) & dataMask) != src + n
+	|| dest + n > dataAlloc
+	|| src + n > dataAlloc)
 	{
 		Com_Error(ERR_DROP, "OP_BLOCK_COPY out of range!");
 	}

@@ -1820,6 +1820,8 @@ void *Hunk_AllocateTempMemory( int size ) {
 	size = PAD(size, sizeof(intptr_t)) + sizeof( hunkHeader_t );
 
 	if ( hunk_temp->temp + hunk_permanent->permanent + size > s_hunkTotal ) {
+		wii_diag_sync("Hunk_AllocateTempMemory FAILED: size=%d temp=%d permanent=%d total=%d\n",
+			size, hunk_temp->temp, hunk_permanent->permanent, s_hunkTotal);
 		Com_Error( ERR_DROP, "Hunk_AllocateTempMemory: failed on %i", size );
 	}
 

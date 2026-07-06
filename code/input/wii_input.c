@@ -1387,11 +1387,11 @@ void Wii_Input_SetCvars(void)
     Cvar_Set("j_pitch",   "0.002");
     Cvar_Set("j_yaw",     "-0.002");
 
+    /* Disable blob shadows (refit flicker on non-flat floors); user cfg can override. */
+    Cvar_Get("cg_shadows", "0", CVAR_ARCHIVE);
+
 #if WPAD_ENABLED
-    /* Wiimote IR aiming — CVAR_ARCHIVE so players can tune and persist them.
-     * sensitivity/maxdelta doubled (0.15->0.30, 25->50) to preserve the prior
-     * body-turn feel now that input is polled once per frame instead of twice
-     * (see wii_main.c). A pre-existing q3config.cfg value overrides these. */
+    /* Wiimote IR cvars, tuned for once-per-frame polling. User cfg overrides. */
     ir_deadzone    = Cvar_Get("wii_ir_deadzone",    "40",   CVAR_ARCHIVE);
     ir_sensitivity = Cvar_Get("wii_ir_sensitivity", "0.30", CVAR_ARCHIVE);
     ir_maxDelta    = Cvar_Get("wii_ir_maxdelta",    "50",   CVAR_ARCHIVE);
@@ -1399,13 +1399,7 @@ void Wii_Input_SetCvars(void)
     ir_pitchRange  = Cvar_Get("wii_ir_pitchrange",  "30",   CVAR_ARCHIVE);
 #endif
 
-    /* 1 = VMI_BYTECODE (interpreter); 2 = VMI_COMPILED (native PPC JIT).
-     * Built with WII_VM_NATIVE=1 to run QVMs as native PPC. The JIT only
-     * actually engages because that flag also defines HAVE_VM_COMPILED in
-     * wii_platform.h (without it, vm.c forces the interpreter regardless).
-     * These run AFTER Com_Init, so they affect cgame/qagame (loaded later);
-     * vm_ui is additionally set in the wii_main.c cmdline because CL_InitUI
-     * runs during Com_Init. */
+    /* Set VM mode: 1=interpreter, 2=JIT. vm_ui set in cmdline (CL_InitUI runs early). */
 #if defined(WII_VM_NATIVE)
     Cvar_Set("vm_ui",    "2");
     Cvar_Set("vm_cgame", "2");
@@ -1416,8 +1410,7 @@ void Wii_Input_SetCvars(void)
     Cvar_Set("vm_game",  "1");
 #endif
 
-    /* Stock default is 200s — far too long on Wii where the user has no
-     * console feedback. 15s matches typical Q3 LAN/WAN connect expectations. */
+    /* Lower connect timeout: 200s too long without console feedback. */
     Cvar_Set("cl_timeout", "15");
 
     Cvar_Set("cg_drawFPS",      "0");
@@ -1426,11 +1419,7 @@ void Wii_Input_SetCvars(void)
     Cvar_Set("com_speeds",      "0");
     Cvar_Set("r_speeds",        "0");
 
-    /* Prevent the warmup map_restart race: qagame.qvm issues a map_restart during
-     * G_InitGame when warmup is enabled. On slow platforms (interpreter, no JIT)
-     * the server's sv.serverId advances before cgame finishes loading, the client
-     * sees a stale serverId, the server resends the gamestate, and the loop repeats.
-     * sv_pure 0 already suppresses the pak-checksum path; this covers the warmup path. */
+    /* Avoid map_restart race on slow VMs. */
     Cvar_Set("g_doWarmup", "0");
 
     /* Only override name if it's still the default; preserve user customisation */
@@ -1449,15 +1438,10 @@ int Wii_Input_GetCtrlType(void)
 
 void Wii_Input_Frame(void)
 {
-    /* Polls for a hotplugged USB pad (throttled internally to ~1x/sec).
-       Deliberately polling-based, not USB_DeviceChangeNotifyAsync()-based —
-       see wii_usb_hid.c for why. */
+    /* Poll for hotplugged USB pad (throttled ~1x/sec, polling-based). */
     USBHID_Poll();
 
-    /* Wired USB HID pad takes top priority, ahead of even DRC: DRC presence
-       is already rare (vWii-only, tablet screen on), and a user who plugged
-       in a 3rd-party USB pad has taken an equally deliberate action that
-       should win. */
+    /* USB HID pad takes priority over DRC (user plugged it in deliberately). */
     if (USBHID_Active()) {
         qboolean in_game = (Key_GetCatcher() == 0) ? qtrue : qfalse;
         if (in_game != s_in_game) {
@@ -1476,9 +1460,7 @@ void Wii_Input_Frame(void)
     }
 
 #if WPAD_ENABLED
-    /* Wii U GamePad (DRC) takes priority when present (vWii + tablet on).
-       WiiDRC_Inited() is false on a real Wii / unpatched fw, so this whole
-       block is skipped and the standard Wiimote/GC arbitration runs. */
+    /* Wii U GamePad (DRC): vWii-only, no-op on real Wii. */
     if (WiiDRC_Inited() && WiiDRC_Connected()) {
         WiiDRC_ScanPads();
         const struct WiiDRCData *drc = WiiDRC_Data();

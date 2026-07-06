@@ -21,11 +21,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
 
-/* GEKKO (Wii) added: devkitPPC does not predefine __powerpc__/__ppc__ etc.,
- * so without GEKKO this whole file compiles to an empty object and VM_Compile /
- * VM_CallCompiled go undefined — breaking the link when HAVE_VM_COMPILED is set
- * (WII_VM_NATIVE builds). The Wii is a 32-bit PPC 750 (Broadway); the non-ELF64
- * code paths below are correct for it. */
+/* GEKKO: devkitPPC doesn't predefine __powerpc__ — needed for VM_Compile/VM_CallCompiled link. */
 #if defined(powerc) || defined(powerpc) || defined(__powerpc__) || \
 	defined(ppc) || defined(__ppc) || defined(__ppc__) || \
 	defined(__powerpc64__) || defined(__ppc64__) || defined(GEKKO)
@@ -2962,6 +2958,8 @@ PPC_ShrinkJumps( void )
 	}
 }
 
+static void VM_Destroy_Compiled( vm_t *self );
+
 /*
  * puts all the data in one place, it consists of many different tasks
  */
@@ -2991,6 +2989,12 @@ PPC_ComputeCode( vm_t *vm )
 
 	if (dataAndCode == MAP_FAILED)
 		DIE( "Not enough memory" );
+
+	// Set codeBase/codeLength now (not after jump-patching below) so that
+	// VM_Destroy_Compiled can reclaim this mmap if a DIE() in the jump-patching
+	// loop below longjmps out before this function returns normally.
+	vm->codeBase = dataAndCode;
+	vm->codeLength = codeLength;
 
 	ppc_instruction_t *codeNow, *codeBegin;
 	codeNow = codeBegin = (ppc_instruction_t *)( dataAndCode + VM_Data_Offset( data[ data_acc ] ) );
@@ -3047,8 +3051,10 @@ PPC_ComputeCode( vm_t *vm )
 			continue;
 
 		// there should have been additional space prepared for this case
-		if ( jumpFrom[ -1 ] != nop )
+		if ( jumpFrom[ -1 ] != nop ) {
+			VM_Destroy_Compiled( vm );
 			DIE( "additional space for long jump not prepared" );
+		}
 
 		// invert instruction condition
 		long int bo = 0;
@@ -3060,6 +3066,7 @@ PPC_ComputeCode( vm_t *vm )
 				bo = branchTrue;
 				break;
 			default:
+				VM_Destroy_Compiled( vm );
 				DIE( "unrecognized branch type" );
 				break;
 		}
@@ -3068,9 +3075,6 @@ PPC_ComputeCode( vm_t *vm )
 		// jumps over the non-conditional one
 		jumpFrom[ -1 ] = IN( iBC, bo, sj_now->bi, +2*4 );
 	}
-
-	vm->codeBase = dataAndCode;
-	vm->codeLength = codeLength;
 
 	vm_data_t *data = (vm_data_t *)dataAndCode;
 

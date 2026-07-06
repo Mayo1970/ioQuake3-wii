@@ -2222,6 +2222,13 @@ static shader_t *FinishShader( void ) {
 		shader.sort = SS_DECAL;
 	}
 
+#ifdef WII_DEBUG
+	if ( strstr( shader.name, "shadow" ) || strstr( shader.name, "Shadow" ) ) {
+		wii_diag_sync( "[shader] '%s' polygonOffset=%d sort=%.0f cull=%d\n",
+			shader.name, shader.polygonOffset, shader.sort, shader.cullType );
+	}
+#endif
+
 	//
 	// set appropriate stage information
 	//

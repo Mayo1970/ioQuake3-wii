@@ -469,12 +469,12 @@ static void R_MipMap (byte *in, int width, int height) {
 	byte	*out;
 	int		row;
 
-	if ( !r_simpleMipMaps->integer ) {
-		R_MipMap2( (unsigned *)in, width, height );
+	if ( width == 1 && height == 1 ) {
 		return;
 	}
 
-	if ( width == 1 && height == 1 ) {
+	if ( !r_simpleMipMaps->integer ) {
+		R_MipMap2( (unsigned *)in, width, height );
 		return;
 	}
 

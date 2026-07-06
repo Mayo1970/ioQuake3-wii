@@ -4,6 +4,7 @@
 #include <fat.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <malloc.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -345,6 +346,21 @@ static void S_Wii_Play_f(void) {
     }
 }
 
+/* Register sound commands since snd_main.c is bypassed. */
+static void S_Wii_Music_f(void) {
+    if (Cmd_Argc() == 2) {
+        S_Base_StartBackgroundTrack(Cmd_Argv(1), NULL);
+    } else if (Cmd_Argc() == 3) {
+        S_Base_StartBackgroundTrack(Cmd_Argv(1), Cmd_Argv(2));
+    } else {
+        Com_Printf("Usage: music <musicfile> [loopfile]\n");
+    }
+}
+
+static void S_Wii_StopMusic_f(void) {
+    S_Base_StopBackgroundTrack();
+}
+
 void S_Init(void)
 {
     boot_mark("S_Init enter");
@@ -354,6 +370,8 @@ void S_Init(void)
     s_doppler     = Cvar_Get("s_doppler",     "1",    CVAR_ARCHIVE);
 
     Cmd_AddCommand("play", S_Wii_Play_f);
+    Cmd_AddCommand("music", S_Wii_Music_f);
+    Cmd_AddCommand("stopmusic", S_Wii_StopMusic_f);
 
     S_CodecInit();
     boot_mark("S_Init: codec registered");
@@ -370,6 +388,8 @@ void S_Shutdown(void)
     Wii_Snd_Shutdown();
     Com_Memset(&s_snd_if, 0, sizeof(s_snd_if));
     Cmd_RemoveCommand("play");
+    Cmd_RemoveCommand("music");
+    Cmd_RemoveCommand("stopmusic");
 }
 void        S_Update(void)                                             { S_Base_Update(); }
 void        S_BeginRegistration(void)                                  { S_Base_BeginRegistration(); }
@@ -526,8 +546,7 @@ static inline int is_mem2_ptr(void *p)
     return mem2_base != NULL && (u8 *)p >= mem2_base;
 }
 
-/* JIT code buffers: recycled via this table because sbrk has <1 MB slack at map load
- * and the bump must keep serving them (memalign-only mmap starves the heap on dm11). */
+/* JIT code buffers recycled via table (sbrk too tight at map load). */
 #define WII_VMCODE_SLOTS 8
 static struct {
     u8  *ptr;
@@ -540,7 +559,7 @@ void *mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset)
     (void)addr; (void)prot; (void)flags; (void)fd; (void)offset;
     int i;
 
-    /* Best-fit recycle: first-fit could park a small VM in a large slot, starving the next big one. */
+    /* Best-fit recycle to avoid slot starvation. */
     int best = -1;
     for (i = 0; i < WII_VMCODE_SLOTS; i++) {
         if (s_vmcode[i].ptr && !s_vmcode[i].used && s_vmcode[i].size >= len &&
@@ -568,7 +587,13 @@ void *mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset)
     }
 
     void *p = memalign(32, len);
-    wii_diag_sync("mmap: len=%u memalign -> %p\n", (unsigned)len, p);
+#ifdef WII_DEBUG
+    {
+        struct mallinfo mi = mallinfo();
+        wii_diag_sync("mmap: len=%u memalign -> %p (mallinfo arena=%u uordblks=%u fordblks=%u)\n",
+            (unsigned)len, p, (unsigned)mi.arena, (unsigned)mi.uordblks, (unsigned)mi.fordblks);
+    }
+#endif
     return p ? p : (void *)-1;
 }
 

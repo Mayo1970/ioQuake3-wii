@@ -892,6 +892,9 @@ static qboolean SurfIsOffscreen( const drawSurf_t *drawSurf, vec4_t clipDest[128
 	// trivially reject
 	if ( pointAnd )
 	{
+#ifdef WII_DEBUG
+		wii_diag( "[mirror] SurfIsOffscreen: trivial reject (pointAnd=0x%x)\n", pointAnd );
+#endif
 		return qtrue;
 	}
 
@@ -922,6 +925,9 @@ static qboolean SurfIsOffscreen( const drawSurf_t *drawSurf, vec4_t clipDest[128
 	}
 	if ( !numTriangles )
 	{
+#ifdef WII_DEBUG
+		wii_diag( "[mirror] SurfIsOffscreen: backface reject (0/%d tris)\n", (int)(tess.numIndexes / 3) );
+#endif
 		return qtrue;
 	}
 
@@ -986,6 +992,12 @@ qboolean R_MirrorViewBySurface (drawSurf_t *drawSurf, int entityNum) {
 	R_MirrorVector (oldParms.or.axis[0], &surface, &camera, newParms.or.axis[0]);
 	R_MirrorVector (oldParms.or.axis[1], &surface, &camera, newParms.or.axis[1]);
 	R_MirrorVector (oldParms.or.axis[2], &surface, &camera, newParms.or.axis[2]);
+
+#ifdef WII_DEBUG
+	wii_diag( "[mirror] rendering: isMirror=%d normal=(%.2f %.2f %.2f) dist=%.2f\n",
+		newParms.isMirror, newParms.portalPlane.normal[0], newParms.portalPlane.normal[1],
+		newParms.portalPlane.normal[2], newParms.portalPlane.dist );
+#endif
 
 	// OPTIMIZE: restrict the viewport on the mirrored view
 

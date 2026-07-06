@@ -65,13 +65,22 @@ static qboolean Wii_FindDataRoot(void)
     return qfalse;
 }
 
+/* FAT cache size: 16 pages (512 KB) for Q3/OA/CLASSIC release, 4 pages (128 KB) for TA/debug.
+   See CLAUDE.md for rationale (TA memory-tight, debug diagnostic baseline). */
+#if defined(STANDALONETA) || defined(WII_MODSELECT) || defined(STANDALONEOA) || defined(WII_DEBUG)
+#define WII_FAT_CACHE_PAGES 4
+#else
+#define WII_FAT_CACHE_PAGES 16
+#endif
+#define WII_FAT_SECTORS_PER_PAGE 64
+
 static qboolean Wii_MountSD(void)
 {
     int attempt;
 
     /* Retry FAT init: USB enumerates slower than SD, normal Wii mounts first try. */
     for (attempt = 0; attempt < 20; attempt++) {
-        if (fatInitDefault())
+        if (dvmInit(true, WII_FAT_CACHE_PAGES, WII_FAT_SECTORS_PER_PAGE))
             break;
         usleep(150000); /* 150 ms - let USB enumerate */
     }
@@ -95,18 +104,8 @@ static qboolean Wii_MountSD(void)
 
 static qboolean s_bootpad_cc_fmt_triggered = qfalse;
 
-/* Shared GC pad + Wiimote + Classic Controller poll for the boot-time menus
-   (video mode / mod select) - both run before Com_Init, so this stays
-   independent of the full Wii_Input_Frame() event-queue path (that needs
-   Com_QueueEvent). Mirrors the CC-init race fix in wii_input.c's
-   WM_Input_Frame(): a freshly-detected Classic Controller needs one
-   WPAD_SetDataFormat() re-trigger before its expansion data (and therefore
-   CLASSIC_BUTTON_* bits) actually reports - without it WPAD_Probe() keeps
-   returning "no expansion" and CC input at the boot menus reads as nothing.
-   Wii_Input_Init() only sends that format once, at boot, often before the CC
-   handshake finishes - the video-mode prompt (which runs right after it)
-   used to hit this every time; the mod picker "worked" only because a few
-   seconds and several scans had already passed by the time it ran. */
+/* Boot-time input (video mode / mod select) before Com_Init. Includes CC-init race fix:
+   re-trigger WPAD_SetDataFormat() on CC detect so WPAD_CLASSIC_BUTTON_* bits report. */
 static void Wii_BootPad_Poll(qboolean *pUp, qboolean *pDown, qboolean *pLeft, qboolean *pRight, qboolean *pA)
 {
     u32 gcDown, wmDown, exp_type;
@@ -439,12 +438,23 @@ int main(int argc, char *argv[])
     snprintf(cmdline + strlen(cmdline), sizeof(cmdline) - strlen(cmdline),
         "+set r_mode -1 "
         "+set r_picmip 2 "
+        /* r_dynamiclight 0 (fixing the long-standing "r_dynamic" typo below
+           this comment used to have) was tried and reverted: it's the first
+           time the native-GX backend's zero-dlight render path has ever
+           executed on this port, and it hard-crashes release (NDEBUG/-O2)
+           builds while a debug build boots fine with the identical cmdline -
+           points to a real bug in that unexercised path, not just a cvar
+           flip. Needs isolation/investigation before retrying. */
         "+set r_dynamic 0 "
         "+set r_flares 0 "
         "+set r_fastsky 0 "
-        "+set r_lodbias 1 "
+        /* r_lodbias intentionally not set: tr_model.c's GEKKO loader only
+           ever loads LoD 0 and duplicates that pointer into the LoD 1/2
+           slots, so this cvar is inert on Wii regardless of value - not
+           worth spending a scarce cmdline slot on. */
+        "+set r_gamma 1.3 "
         "+set r_subdivisions 20 "
-        "+set r_simpleMipMaps 1 "
+        "+set r_simpleMipMaps 0 "
         "+set r_drawSun 0 "
         "+set r_primitives 2 "
         "+set com_maxfps " WII_MAXFPS_STR " "
@@ -476,7 +486,13 @@ int main(int argc, char *argv[])
 #endif
 #if defined(STANDALONETA)
         " +set fs_game missionpack"
-#elif defined(WII_FSGAME)
+#elif defined(WII_FSGAME) && !defined(WII_MODSELECT)
+        /* Skipped under WII_MODSELECT: the runtime picker below already appends its
+           own "+set fs_game <selected>" slot, and this cmdline sits right at the
+           31-usable-line MAX_CONSOLE_LINES budget (see the note above) - stacking
+           both a compile-time and a runtime fs_game append overflows to a 32nd
+           token, which Com_ParseCommandLine silently merges into the previous
+           line instead of giving it its own slot. */
         " +set fs_game " WII_FSGAME
 #endif
     );
