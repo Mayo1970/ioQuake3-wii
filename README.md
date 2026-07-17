@@ -1,41 +1,38 @@
 # ioQuake3-Wii
 
-A Nintendo Wii port of [ioQuake3](https://github.com/ioquake/ioq3). It boots
-from the Homebrew Channel as `boot.dol` and runs Quake III Arena and Open
-Arena from SD or USB data. A separate **CLASSIC** build flavor adds crossplay
-with original Dreamcast Quake III Arena (protocol 43, 1.16n-era) servers, and
-a **Mod Selector** flavor lets you pick a `baseq3`-compatible mod folder from
-a boot-time menu instead of hardcoding it into the build.
+A port of [ioQuake3](https://github.com/ioquake/ioq3) to the Nintendo Wii,
+using devkitPPC/libogc and a custom GL-to-GX direct rendering backend (an
+OpenGX fixed-function fallback is also available). Boots from the Homebrew
+Channel as `boot.dol`.
 
-The default renderer is the native GX backend. The older OpenGX path is still
-available as a build-time fallback. The default VM mode is the native-PPC QVM
-JIT.
+Five build flavors are produced from the same source tree:
+
+| Variant | HBC app dir | Output | Game dir on SD/USB |
+|---|---|---|---|
+| ioQuake3 (Q3A) | `apps/ioquake3/` | `build/boot.dol` | `baseq3` |
+| Open Arena | `apps/openarena/` | `build_oa/boot.dol` | `baseoa` |
+| CLASSIC (Dreamcast crossplay) | `apps/ioquake3-classic/` | `build_classic/boot.dol` | `baseq3` (pak0–pak2 only) |
+| Mod Selector | `apps/ioquake3-modselect/` | `build_modsel/boot.dol` | `baseq3` + any picked mod folder |
 
 ## Status
 
-- Boots, connects to servers, loads maps, and enters gameplay
 - Native GX renderer by default, with legacy OpenGX fallback
-- Networking works: Wi-Fi, LAN discovery, internet server browser, and content downloads
-- Background music and RoQ cinematic playback
+- Networking works
 - Wiimote + Nunchuk with IR aim
 - Classic Controller / Classic Controller Pro support
-- Wii U GamePad support on vWii
+- Wii U GamePad support on vWii [although a Wii-U port exists](https://github.com/Mayo1970/ioQuake3-U)
 - GameCube controller support
-- Wired USB HID gamepad support (see below)
+- Wired USB HID gamepad support (see Controls below)
 - USB keyboard and mouse support
-- Bot support for offline and hosted games
-- Local server hosting
 - Per-controller button binding persistence across reboots
-- Quake III Arena and Open Arena build flavors; a Team Arena flavor also
-  builds but is still memory-starved and unstable on real hardware (see
-  Known Issues)
+- Quake III Arena and Open Arena build flavors
 - **CLASSIC** build flavor: crossplay with real Dreamcast Q3A (protocol 43,
   1.16n-era) servers
 - **Mod Selector** build flavor: boot-time menu to pick any `baseq3`-compatible
   mod folder present on the data device
-- Boot-time video mode selection — every build contains 480p-ish default,
+- Boot-time video mode selection — every build contains all three: default,
   240p NTSC, and 264p PAL output for CRTs and retro scalers, chosen with a
-  d-pad prompt at boot (no separate build needed)
+  d-pad prompt at boot
 
 ## Prerequisites
 
@@ -55,9 +52,17 @@ The Makefile can use an internal ioQ3 zlib if one is present, but the normal
 fresh-clone path expects `ppc-zlib` from devkitPro portlibs. It also links
 libjpeg from portlibs.
 
+4. Game data: you need to bring your own `.pk3` files — none are included in
+   this repo. See [INSTALLATION.md](INSTALLATION.md) for where to get them.
+
+---
+
 ## Building
 
-Run these from the repository root in the devkitPro MSYS2 shell.
+All ioQ3 sources are vendored under `code/` (already patched for Wii) — no
+separate patch step, no external `../ioq3` checkout, no submodule. Fresh
+clone → `make dol` builds. Run these from the repository root in the
+devkitPro MSYS2 shell.
 
 | Command | Output |
 |---|---|
@@ -71,10 +76,6 @@ Run these from the repository root in the devkitPro MSYS2 shell.
 | `make modsel-debug` | Mod Selector debug build with device-root logging: `build_modsel/boot.dol` |
 | `make all-flavors` | Q3A + OA + CLASSIC release builds |
 | `make clean` | Remove build output directories and copied zlib headers |
-
-Video mode is no longer a build-time choice — every build above contains all
-three modes (default / 240p NTSC / 264p PAL) and prompts for one at boot. See
-"240p / 264p mode" below.
 
 A Team Arena flavor (`make ta`, `make ta-debug`) also builds, and
 `make all-flavors` includes it, but it remains memory-starved and unstable on
@@ -90,7 +91,6 @@ real hardware — not recommended for regular use.
 | `WII_OPENGX=1` | `0` | Build the legacy OpenGX renderer instead of native GX. Run `make clean` before switching renderer backends. |
 | `WII_NATIVE_GX=0` | `1` | Equivalent OpenGX fallback override. Run `make clean` before switching. |
 | `WII_GX_PROFILE=1` | `0` | Enable the GX bottleneck profiler. Use with `make debug` so output reaches `diag.txt`. |
-| `INPUT_BACKEND=gamecube` | `wiimote` | Build without WPAD/Wii U GamePad support; GameCube, USB keyboard, and USB mouse remain. |
 
 Example:
 
@@ -117,55 +117,36 @@ The 240p targets force `TVNtsc240Ds`. The PAL 240p targets force `TVPal264Ds`
 (264p at 50 Hz). These modes are intended for CRTs and retro scalers such as
 RetroTINK or OSSC. Many modern flat panels reject the signal entirely.
 
-## Storage Layout
+---
 
-The port can run from SD or USB. At boot it mounts FAT storage, probes
-`sd:/quake3` first, then `usb:/quake3`, and uses the device that contains the
-`quake3` directory for `fs_basepath`, `fs_homepath`, qkey, configs, and logs.
+## Installing on Wii
 
-Copy the produced `boot.dol` to the matching Homebrew Channel app directory on
-the same device.
+See **[INSTALLATION.md](INSTALLATION.md)** for the full step-by-step,
+including where to get each build's required game files and exactly where to
+place them on your SD card or USB drive.
 
-```text
-<dev>:/
-|-- apps/
-|   |-- ioquake3/
-|   |   |-- boot.dol       <- build/boot.dol
-|   |   `-- meta.xml
-|   |-- openarena/
-|   |   |-- boot.dol       <- build_oa/boot.dol
-|   |   `-- meta.xml
-|   |-- ioquake3-classic/
-|   |   |-- boot.dol       <- build_classic/boot.dol
-|   |   `-- meta.xml
-|   `-- ioquake3-modselect/
-|       |-- boot.dol       <- build_modsel/boot.dol
-|       `-- meta.xml
-`-- quake3/
-    |-- baseq3/            <- Q3A data (also CLASSIC: pak0-pak2.pk3 only)
-    |   |-- pak0.pk3
-    |   |-- pak1.pk3
-    |   |-- ...
-    |   `-- pak8.pk3
-    |-- baseoa/            <- Open Arena data
-    |   |-- pak0.pk3
-    |   `-- ...
-    `-- <modname>/         <- any extra mod folder, picked at boot by the Mod Selector flavor
-        `-- *.pk3
+Short version: copy the built `boot.dol` into the matching
+`<dev>:/apps/<name>/` folder from the variant table above, and drop your
+`.pk3` files under `<dev>:/quake3/<gamedir>/`. `<dev>` is `sd:` or `usb:` — at
+boot the port mounts FAT storage, probes `sd:/quake3` first, then
+`usb:/quake3`, and uses whichever device has the `quake3` directory for
+`fs_basepath`, `fs_homepath`, the qkey, configs, and logs. USB boot is also
+the normal path for Wii Mini, which has no SD slot.
+
+### Installing custom mods
+
+The engine respects `fs_game`. Drop a mod under its own folder alongside
+`baseq3/`:
+
+```
+<dev>:/quake3/excessive/pak0.pk3
 ```
 
-Data requirements:
+Then either use `make modsel` to pick it from the boot-time menu, rebuild
+with `WII_FSGAME=excessive`, or set it from the in-game console
+(`\fs_game excessive`, then `\vid_restart`).
 
-- Q3A: `<dev>:/quake3/baseq3/pak*.pk3`
-- Open Arena: `<dev>:/quake3/baseoa/pak*.pk3`
-- CLASSIC: `<dev>:/quake3/baseq3/pak0-pak2.pk3` only; `zpack-classic.pk3` is
-  embedded in the DOL and auto-extracted to `baseq3/` on first boot
-- Mod Selector: `<dev>:/quake3/baseq3/pak0-pak8.pk3` (the default Q3A data)
-  plus any additional folder under `<dev>:/quake3/` containing at least one
-  `.pk3` — the boot menu lists whatever it finds
-
-Use `sd:` for SD card installs or `usb:` for USB installs. USB boot is also the
-normal path for Wii Mini, which has no SD slot.
+---
 
 ## Debug Builds
 
@@ -176,6 +157,8 @@ Debug targets enable logging on the active data device:
 - `<dev>:/quake3/crash.txt`: early checkpoint confirming storage was mounted
 
 `WII_GX_PROFILE=1` writes GP counter windows to `diag.txt` in debug builds.
+
+---
 
 ## Controls
 
@@ -218,6 +201,7 @@ Confirmed working on real hardware:
 | PS3 (Sixaxis / DualShock 3) | |
 | PS4 (DualShock 4), v1 and v2 | |
 | DualSense (PS5) | |
+| Switch Pro Controller | |
 
 Present in the device profile table but **not functional** — every one
 crashes the console the instant it sends its first real input report, a
@@ -227,9 +211,6 @@ libogc/IOS limitation of the vendor-specific USB class these pads use (see
 - Xbox One / Xbox One S / Xbox One Elite / Xbox One Elite 2
 - Xbox Series X/S
 - Xbox 360 (wired)
-
-A Nintendo Switch Pro Controller (wired) profile also exists in the table but
-is unverified on real hardware.
 
 Each brand's raw report is normalized into one brand-independent virtual
 gamepad (face buttons, shoulders/triggers, two sticks, D-pad), so binds
@@ -352,23 +333,6 @@ safely and has no effect.
 | ZR | Click |
 | D-pad | Arrow keys |
 
-### USB Keyboard
-
-Use a USB keyboard to type console commands, server IPs, and chat messages.
-Press `~` to toggle the console. Letters, numbers, symbols, F1-F12, arrows,
-numpad keys, and modifiers are mapped.
-
-### USB Mouse
-
-Use a USB mouse for desktop-style aiming. Left, right, middle, and wheel input
-are supported.
-
-## Bots
-
-Bot AI works in local and hosted games. Use the in-game menus to start a local
-match and add bots. The build uses `MAX_CLIENTS=8`, so up to 7 bots can join
-with one local player.
-
 ## CLASSIC Build
 
 `make classic` builds a separate flavor for crossplay with original Sega
@@ -387,28 +351,7 @@ loading `baseq3`. It scans `<dev>:/quake3/` for any folder (other than
 the d-pad before the engine starts. Picking "baseq3 only" boots normally.
 This replaces having to bake a mod name in with `WII_FSGAME` at build time.
 
-## Runtime Defaults
-
-The Wii boot cmdline sets conservative defaults before `Com_Init`, including:
-
-- `com_hunkMegs`: dynamic MEM2 bump minus 1 MB
-- `com_zoneMegs 8`
-- `com_soundMegs 2`
-- `com_maxfps`: from `WII_MAXFPS`, default 60
-- `r_fastsky 0`
-- `r_picmip 2`
-- `r_gamma 1.3`
-- `r_simpleMipMaps 0`
-- `r_dynamic 0` (a harmless cvar-name typo for the disabled `r_dynamiclight`
-  — fixing it hard-crashes release builds; see Known Issues)
-- `r_flares 0`
-- `sv_pure 0`
-- `sv_maxclients 8` (the engine's own default, not set explicitly on the cmdline)
-- `cl_allowDownload 1`
-
-Controller, joystick, and IR cvars that do not need to exist before
-`Com_Init` are set later by `Wii_Input_SetCvars()` to keep the startup cmdline
-under `MAX_CONSOLE_LINES=32`.
+---
 
 ## Memory Budget
 
@@ -467,6 +410,16 @@ arena so large OA/TA QVMs do not burn sbrk on allocator overhead.
   TVs/upscalers over composite or RF. This happens in the display's own
   deinterlacer, after this port's output, so it can't be fixed render-side.
   Pick the 240p or 264p mode at the boot prompt instead if you see this.
+
+---
+
+## Credits
+
+- **[ioQuake3](https://github.com/ioquake/ioq3)** — the upstream engine this port is based on.
+- **[devkitPro](https://devkitpro.org/)** — the devkitPPC toolchain and libogc runtime library this port builds and runs against.
+- **[OpenGX](https://github.com/devkitPro/opengx)** — the GL-to-GX translation layer used by the `WII_OPENGX=1` fallback renderer (patched in-tree, see `libs/opengx/`).
+- **[libwiidrc](https://github.com/FIX94/libwiidrc)** — Wii U GamePad (DRC) input support on vWii (`libs/wiidrc/`).
+- **[Lilium Arena Classic](https://github.com/clover-moe/lilium-arena-classic)** (clover-moe / clover-leaf) — reverse-engineered Quake III Arena protocol-43 / Dreamcast compatibility reference used while building the CLASSIC build's crossplay layer.
 
 ---
 
