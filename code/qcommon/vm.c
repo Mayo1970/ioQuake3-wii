@@ -447,10 +447,8 @@ vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc, qboolean unpure)
 	dataLength = header.h->dataLength + header.h->litLength +
 		header.h->bssLength;
 #if defined(GEKKO)
-	// Save the real (unrounded) size. dataMask still uses the power-of-2 boundary
-	// for safe address wrapping, but dataAlloc only covers the actual data plus the
-	// 64 KB runtime stack limit (PROGRAM_STACK_SIZE). Saves 1-3 MB of hunk per VM
-	// on TA's oversized QVMs (e.g. cgame: 5.25 MB real → 8 MB rounded, saves ~2.7 MB).
+	// dataMask still needs the power-of-2 boundary, but dataAlloc only covers
+	// the real size - saves 1-3 MB of hunk per VM on TA's oversized QVMs.
 	int rawDataLength = dataLength;
 #endif
 	for ( i = 0 ; dataLength > ( 1 << i ) ; i++ ) {
@@ -715,9 +713,8 @@ vm_t *VM_Create( const char *module, intptr_t (*systemCalls)(intptr_t *),
 
 	// the stack is implicitly at the end of the image
 #if defined(GEKKO)
-	// dataAlloc = wiiDataAlloc + 4 (guard bytes); programStack = wiiDataAlloc.
-	// This places the stack top exactly at the end of the allocated region,
-	// which may be less than dataMask + 1 when the real QVM data < power-of-2.
+	// Stack top sits at the end of the real allocation, which may be
+	// smaller than dataMask + 1 - that's the whole point of shrinking it.
 	vm->programStack = vm->dataAlloc - 4;
 #else
 	vm->programStack = vm->dataMask + 1;

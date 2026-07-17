@@ -26,6 +26,7 @@ extern int   Key_GetCatcher(void);
 extern void  Key_SetBinding(int keynum, const char *binding);
 extern char *Key_GetBinding(int keynum);
 extern char *Key_KeynumToString(int keynum);
+extern int   wii_keynumstr_raw;   /* cl_keys.c — 1 = canonical "JOYn" names */
 
 #define STICK_DEADZONE       20
 #define CSTICK_DEADZONE      50
@@ -57,6 +58,12 @@ static const btn_map_t s_gc_buttons[] = {
 
 #define K_JOY_LTRIG  K_JOY11
 #define K_JOY_RTRIG  K_JOY12
+
+/* Analog triggers folded into the menu-path button mask as synthetic bits so
+   the raw bind-capture layer treats them like any other button (PAD_BUTTON_*
+   occupy the low u16; these don't collide). */
+#define GC_SYNTH_LTRIG  0x40000000u
+#define GC_SYNTH_RTRIG  0x80000000u
 
 static const btn_map_t s_gc_menu_buttons[] = {
     { PAD_BUTTON_A,      K_ENTER      },
@@ -201,17 +208,27 @@ static float          s_accum_y        = 0.0f;
 static float          s_accum_cx       = 0.0f;
 static float          s_accum_cy       = 0.0f;
 static short          s_old_axis[4];
-static qboolean       s_old_ltrig      = qfalse;
-static qboolean       s_old_rtrig      = qfalse;
-/* Raw physical state of the button bound to "togglemenu" (Plus/Start),
- * tracked independently of key_held[]/ReleaseAllKeys() so the menu-table's
- * K_ESCAPE alias for that button only fires on a genuine release+press
- * edge, not on the state wipe ReleaseAllKeys() does when the catcher
- * flips to UI while the button is still physically held. */
+/* Tracked outside key_held[] so a held Start surviving ReleaseAllKeys()'s
+ * state wipe doesn't fake a menu-toggle edge. Found this the hard way. */
 static qboolean       s_wm_plus_prev   = qfalse;
 static qboolean       s_drc_plus_prev  = qfalse;
 static qboolean       s_usb_start_prev = qfalse;
 static int            s_active_ctrl_type = -1;
+
+/* Raw bind-capture layer (menus only). The menu maps deliberately hide the
+ * K_JOYn codes from the UI so A/B/D-pad can navigate — which also made every
+ * pad button impossible to bind from the retail Controls menu (its grabber
+ * binds any keynum it receives, but never saw a JOY code). Holding a
+ * per-controller modifier (Minus; GC: Z, USB: Back/Share) while a menu is open
+ * switches emission to the in-game map so the grabber captures real JOY codes;
+ * tapping the modifier alone emits its own JOY code on release so the modifier
+ * itself stays bindable. All modifier codes sit outside K_JOY1–K_JOY4 (the
+ * codes retail menus treat as ENTER), so a stray tap in normal navigation is
+ * inert. See MenuRawLayer(). */
+static qboolean       s_menu_raw      = qfalse; /* modifier held in a menu */
+static qboolean       s_menu_mod_used = qfalse; /* other button seen during hold */
+static u32            s_menu_suppress = 0;      /* held-over bits: no menu key
+                                                   re-assert until released */
 
 #if WPAD_ENABLED
 static qboolean       s_cc_fmt_triggered = qfalse;
@@ -252,6 +269,59 @@ static void ReleaseAllKeys(void)
     Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_YAW,     0, 0, NULL);
     Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_PITCH,   0, 0, NULL);
     s_old_axis[0] = s_old_axis[1] = s_old_axis[2] = s_old_axis[3] = 0;
+    /* Any state wipe (menu open/close, hotswap) also exits the raw
+       bind-capture layer cleanly: no pending tap, no stale suppression.
+       MenuRawLayer() re-establishes its state after calling this. */
+    s_menu_raw      = qfalse;
+    s_menu_mod_used = qtrue;
+    s_menu_suppress = 0;
+}
+
+/* Raw bind-capture layer — call at the top of a menu branch (never in-game).
+   Returns qtrue while the modifier is held: the in-game JOY codes (minus the
+   modifier's own) have been emitted and the caller must skip ALL menu-key
+   emission this frame. Returns qfalse otherwise, with *held stripped of
+   buttons still physically down since the raw layer exited — they must not
+   re-assert their menu keys (K_ENTER re-activating the bind row was a real
+   failure mode) until released. */
+static qboolean MenuRawLayer(const btn_map_t *map, int count, u32 *held,
+                             u32 mod_bit, int mod_key)
+{
+    qboolean raw = (*held & mod_bit) ? qtrue : qfalse;
+    int i;
+
+    if (raw != s_menu_raw) {
+        if (raw) {
+            ReleaseAllKeys();          /* drop held menu keys before the flip */
+            s_menu_raw      = qtrue;   /* set after the wipe's layer reset */
+            s_menu_mod_used = qfalse;  /* fresh hold — a tap is possible */
+        } else {
+            qboolean tap = !s_menu_mod_used;
+            ReleaseAllKeys();          /* drop held JOY keys; resets layer state */
+            s_menu_suppress = *held & ~mod_bit;
+            if (tap) {
+                /* Bind-grabbers act on key-down; the immediate up keeps
+                   key_held[] honest and the retail menus ignore up events. */
+                InjectKey(mod_key, qtrue);
+                InjectKey(mod_key, qfalse);
+            }
+        }
+    }
+
+    if (!raw) {
+        s_menu_suppress &= *held;      /* released buttons leave the mask */
+        *held &= ~s_menu_suppress;
+        return qfalse;
+    }
+
+    for (i = 0; i < count; i++) {
+        if (map[i].bit == mod_bit)
+            continue;
+        if (*held & map[i].bit)
+            s_menu_mod_used = qtrue;
+        InjectKey(map[i].q3key, (*held & map[i].bit) ? qtrue : qfalse);
+    }
+    return qtrue;
 }
 
 static short GC_FilterAxis(s8 raw, int deadzone)
@@ -318,11 +388,17 @@ static void SaveControllerBindings(int type)
         return;
     }
 
+    /* Canonical "JOYn" names, same as Key_WriteBindings — the friendly labels
+       ("A", "ZR", "D-Up") don't round-trip through Key_StringToKeynum, so a
+       cfg written with them loses every multi-char bind on exec (and binds
+       keyboard letters for the single-char ones). */
+    wii_keynumstr_raw = 1;
     for (k = CTRL_KEY_FIRST; k <= CTRL_KEY_LAST; k++) {
         char *bind = Key_GetBinding(k);
         if (bind && bind[0])
             FS_Printf(f, "bind %s \"%s\"\n", Key_KeynumToString(k), bind);
     }
+    wii_keynumstr_raw = 0;
 
     FS_FCloseFile(f);
 }
@@ -357,8 +433,13 @@ static qboolean CtrlCfgExists(int type)
 
 static qboolean SetActiveControllerType(int type)
 {
-    if (s_active_ctrl_type != -1 && s_active_ctrl_type != type)
+    if (s_active_ctrl_type != -1 && s_active_ctrl_type != type) {
         SaveControllerBindings(s_active_ctrl_type);
+        /* Release keys only the outgoing controller can release (e.g. its
+           trigger keys) so nothing stays held across the hotswap. */
+        ReleaseAllKeys();
+        s_wm_plus_prev = s_drc_plus_prev = s_usb_start_prev = qfalse;
+    }
 
     Cvar_SetValue("wii_lastControllerType", (float)type);
     s_active_ctrl_type = type;
@@ -494,11 +575,23 @@ static void GC_Input_Frame(void)
     SetGCBindings();
 
     if (!in_game) {
-        for (i = 0; i < (int)GC_MENU_BTN_COUNT; i++)
-            InjectKey(s_gc_menu_buttons[i].q3key,
-                      (held & s_gc_menu_buttons[i].bit) ? qtrue : qfalse);
+        u32 menu_held = held;
+        if (l_ana > TRIGGER_THRESHOLD) menu_held |= GC_SYNTH_LTRIG;
+        if (r_ana > TRIGGER_THRESHOLD) menu_held |= GC_SYNTH_RTRIG;
 
-        InjectKey(K_MOUSE1, r_ana > TRIGGER_THRESHOLD ? qtrue : qfalse);
+        if (MenuRawLayer(s_gc_buttons, (int)GC_BTN_COUNT, &menu_held,
+                         PAD_TRIGGER_Z, K_JOY5)) {
+            if (menu_held & (GC_SYNTH_LTRIG | GC_SYNTH_RTRIG))
+                s_menu_mod_used = qtrue;
+            InjectKey(K_JOY_LTRIG, (menu_held & GC_SYNTH_LTRIG) ? qtrue : qfalse);
+            InjectKey(K_JOY_RTRIG, (menu_held & GC_SYNTH_RTRIG) ? qtrue : qfalse);
+        } else {
+            for (i = 0; i < (int)GC_MENU_BTN_COUNT; i++)
+                InjectKey(s_gc_menu_buttons[i].q3key,
+                          (menu_held & s_gc_menu_buttons[i].bit) ? qtrue : qfalse);
+
+            InjectKey(K_MOUSE1, (menu_held & GC_SYNTH_RTRIG) ? qtrue : qfalse);
+        }
 
         InjectCursorStick(lx, ly, MENU_SENSITIVITY_F, STICK_DEADZONE,
                           &s_accum_x, &s_accum_y);
@@ -509,17 +602,11 @@ static void GC_Input_Frame(void)
             InjectKey(s_gc_buttons[i].q3key,
                       (held & s_gc_buttons[i].bit) ? qtrue : qfalse);
 
-        qboolean l_pressed = l_ana > TRIGGER_THRESHOLD ? qtrue : qfalse;
-        qboolean r_pressed = r_ana > TRIGGER_THRESHOLD ? qtrue : qfalse;
-
-        if (l_pressed != s_old_ltrig) {
-            s_old_ltrig = l_pressed;
-            Com_QueueEvent(0, SE_KEY, K_JOY_LTRIG, l_pressed, 0, NULL);
-        }
-        if (r_pressed != s_old_rtrig) {
-            s_old_rtrig = r_pressed;
-            Com_QueueEvent(0, SE_KEY, K_JOY_RTRIG, r_pressed, 0, NULL);
-        }
+        /* Through InjectKey like every other button so key_held[] tracks the
+           triggers: ReleaseAllKeys can release them (menu open, hotswap) and
+           a still-held trigger re-asserts the frame after. */
+        InjectKey(K_JOY_LTRIG, l_ana > TRIGGER_THRESHOLD ? qtrue : qfalse);
+        InjectKey(K_JOY_RTRIG, r_ana > TRIGGER_THRESHOLD ? qtrue : qfalse);
 
         short ax_lx = GC_FilterAxis(lx, STICK_DEADZONE);
         short ax_ly = GC_FilterAxis(ly, STICK_DEADZONE);
@@ -654,9 +741,14 @@ static void CC_Input_Frame(WPADData *data, qboolean in_game)
     SetClassicBindings();
 
     if (!in_game) {
-        for (i = 0; i < (int)CC_MENU_BTN_COUNT; i++)
-            InjectKey(s_cc_menu_buttons[i].q3key,
-                      (data->btns_h & s_cc_menu_buttons[i].bit) ? qtrue : qfalse);
+        u32 menu_held = data->btns_h;
+
+        if (!MenuRawLayer(s_cc_buttons, (int)CC_BTN_COUNT, &menu_held,
+                          WPAD_CLASSIC_BUTTON_MINUS, K_JOY10)) {
+            for (i = 0; i < (int)CC_MENU_BTN_COUNT; i++)
+                InjectKey(s_cc_menu_buttons[i].q3key,
+                          (menu_held & s_cc_menu_buttons[i].bit) ? qtrue : qfalse);
+        }
 
         float mag = cc->ljs.mag;
         if (mag > CC_STICK_DEADZONE) {
@@ -754,17 +846,26 @@ static void DRC_Input_Frame(const struct WiiDRCData *drc, qboolean in_game)
         s_home_pressed = qtrue;
 
     if (!in_game) {
-        for (i = 0; i < (int)DRC_MENU_BTN_COUNT; i++)
-            InjectKey(s_drc_menu_buttons[i].q3key,
-                      (drc->button & s_drc_menu_buttons[i].bit) ? qtrue : qfalse);
+        u32 menu_held = drc->button;
 
-        {
-            qboolean plus_now = (drc->button & WIIDRC_BUTTON_PLUS) ? qtrue : qfalse;
-            if (plus_now && !s_drc_plus_prev)
-                InjectKey(K_ESCAPE, qtrue);
-            else if (!plus_now && s_drc_plus_prev)
-                InjectKey(K_ESCAPE, qfalse);
-            s_drc_plus_prev = plus_now;
+        if (MenuRawLayer(s_drc_buttons, (int)DRC_BTN_COUNT, &menu_held,
+                         WIIDRC_BUTTON_MINUS, K_JOY10)) {
+            /* Plus emitted its JOY code above; keep the edge shadow current
+               so raw-exit doesn't fake a menu-toggle edge. */
+            s_drc_plus_prev = (drc->button & WIIDRC_BUTTON_PLUS) ? qtrue : qfalse;
+        } else {
+            for (i = 0; i < (int)DRC_MENU_BTN_COUNT; i++)
+                InjectKey(s_drc_menu_buttons[i].q3key,
+                          (menu_held & s_drc_menu_buttons[i].bit) ? qtrue : qfalse);
+
+            {
+                qboolean plus_now = (menu_held & WIIDRC_BUTTON_PLUS) ? qtrue : qfalse;
+                if (plus_now && !s_drc_plus_prev)
+                    InjectKey(K_ESCAPE, qtrue);
+                else if (!plus_now && s_drc_plus_prev)
+                    InjectKey(K_ESCAPE, qfalse);
+                s_drc_plus_prev = plus_now;
+            }
         }
 
         /* Left stick drives the menu cursor. */
@@ -885,9 +986,8 @@ static void WM_Input_Frame(void)
 #endif
 
     if (has_classic) {
-        /* On first CC detect, re-apply data format so wiiuse_set_report_type
-           picks WM_RPT_BTN_ACC_IR_EXP with EXP set. Without this the CC
-           handshake races and the Wiimote keeps reporting no expansion data. */
+        /* CC handshake races the format request - retrigger once on first
+           detect or the Wiimote lies and reports no expansion forever. */
         if (!s_cc_fmt_triggered) {
             s_cc_fmt_triggered = qtrue;
             WPAD_SetDataFormat(WPAD_CHAN_0, WPAD_FMT_BTNS_ACC_IR);
@@ -899,22 +999,31 @@ static void WM_Input_Frame(void)
 
         SetWiimoteBindings();
 
-        for (i = 0; i < (int)WM_MENU_BTN_COUNT; i++)
-            InjectKey(s_wm_menu_buttons[i].q3key,
-                      (held & s_wm_menu_buttons[i].bit) ? qtrue : qfalse);
+        u32 menu_held = held;
 
-        {
-            qboolean plus_now = (held & WPAD_BUTTON_PLUS) ? qtrue : qfalse;
-            if (plus_now && !s_wm_plus_prev)
-                InjectKey(K_ESCAPE, qtrue);
-            else if (!plus_now && s_wm_plus_prev)
-                InjectKey(K_ESCAPE, qfalse);
-            s_wm_plus_prev = plus_now;
+        if (MenuRawLayer(s_wm_buttons, (int)WM_BTN_COUNT, &menu_held,
+                         WPAD_BUTTON_MINUS, K_JOY6)) {
+            /* Plus emitted its JOY code above; keep the edge shadow current
+               so raw-exit doesn't fake a menu-toggle edge. */
+            s_wm_plus_prev = (held & WPAD_BUTTON_PLUS) ? qtrue : qfalse;
+        } else {
+            for (i = 0; i < (int)WM_MENU_BTN_COUNT; i++)
+                InjectKey(s_wm_menu_buttons[i].q3key,
+                          (menu_held & s_wm_menu_buttons[i].bit) ? qtrue : qfalse);
+
+            {
+                qboolean plus_now = (menu_held & WPAD_BUTTON_PLUS) ? qtrue : qfalse;
+                if (plus_now && !s_wm_plus_prev)
+                    InjectKey(K_ESCAPE, qtrue);
+                else if (!plus_now && s_wm_plus_prev)
+                    InjectKey(K_ESCAPE, qfalse);
+                s_wm_plus_prev = plus_now;
+            }
+
+            if (has_nunchuk)
+                InjectKey(K_MOUSE1,
+                          (menu_held & WPAD_NUNCHUK_BUTTON_Z) ? qtrue : qfalse);
         }
-
-        if (has_nunchuk)
-            InjectKey(K_MOUSE1,
-                      (held & WPAD_NUNCHUK_BUTTON_Z) ? qtrue : qfalse);
 
         WM_IRAiming(&data->ir, qfalse);
 
@@ -959,10 +1068,8 @@ static void WM_Input_Frame(void)
 
 #endif /* WPAD_ENABLED */
 
-/* Wired USB HID pad (Xbox One/PS4/PS3) — unconditional, independent of
-   WPAD_ENABLED (a wired USB pad works the same regardless of which native
-   backend the build targets). Buttons come from wii_usb_hid.c's unified
-   virtual-gamepad layout, so this table is brand-independent. */
+/* Wired USB HID pad, brand-independent — wii_usb_hid.c already normalized
+   PS3/PS4/DualSense into one virtual-gamepad layout before it gets here. */
 static const btn_map_t s_usb_buttons[] = {
     { USBHID_BTN_A,      K_JOY1  },
     { USBHID_BTN_B,      K_JOY2  },
@@ -1030,25 +1137,36 @@ static void USBPad_Input_Frame(qboolean in_game)
     SetUSBBindings();
 
     if (!in_game) {
-        for (i = 0; i < (int)USB_MENU_BTN_COUNT; i++)
-            InjectKey(s_usb_menu_buttons[i].q3key,
-                      (buttons & s_usb_menu_buttons[i].bit) ? qtrue : qfalse);
+        u32 menu_held = buttons;
 
-        {
-            qboolean start_now = (buttons & USBHID_BTN_START) ? qtrue : qfalse;
-            if (start_now && !s_usb_start_prev)
-                InjectKey(K_ESCAPE, qtrue);
-            else if (!start_now && s_usb_start_prev)
-                InjectKey(K_ESCAPE, qfalse);
-            s_usb_start_prev = start_now;
+        if (MenuRawLayer(s_usb_buttons, (int)USB_BTN_COUNT, &menu_held,
+                         USBHID_BTN_BACK, K_JOY7)) {
+            if (lt > TRIGGER_THRESHOLD || rt > TRIGGER_THRESHOLD)
+                s_menu_mod_used = qtrue;
+            InjectKey(K_JOY_USB_LTRIG, lt > TRIGGER_THRESHOLD ? qtrue : qfalse);
+            InjectKey(K_JOY_USB_RTRIG, rt > TRIGGER_THRESHOLD ? qtrue : qfalse);
+            /* Start emitted its JOY code above; keep the edge shadow current
+               so raw-exit doesn't fake a menu-toggle edge. */
+            s_usb_start_prev = (buttons & USBHID_BTN_START) ? qtrue : qfalse;
+        } else {
+            for (i = 0; i < (int)USB_MENU_BTN_COUNT; i++)
+                InjectKey(s_usb_menu_buttons[i].q3key,
+                          (menu_held & s_usb_menu_buttons[i].bit) ? qtrue : qfalse);
+
+            {
+                qboolean start_now = (menu_held & USBHID_BTN_START) ? qtrue : qfalse;
+                if (start_now && !s_usb_start_prev)
+                    InjectKey(K_ESCAPE, qtrue);
+                else if (!start_now && s_usb_start_prev)
+                    InjectKey(K_ESCAPE, qfalse);
+                s_usb_start_prev = start_now;
+            }
         }
 
         if (lx > USB_STICK_DEADZONE || lx < -USB_STICK_DEADZONE ||
             ly > USB_STICK_DEADZONE || ly < -USB_STICK_DEADZONE) {
-            /* No negation on ly here either — same reasoning as the in-game
-               fwd/pitch fix below: USBHID_GetAxes() already returns "up =
-               negative" (converted from the controllers' raw HID Y-axis
-               byte), so negating again would double-invert the cursor. */
+            /* Do NOT negate ly - USBHID_GetAxes() already flipped it. See the
+               in-game block below; I only need to explain this bug once. */
             s_accum_x += ((float)lx / 32767.0f) * MENU_SENSITIVITY_F;
             s_accum_y += ((float)ly / 32767.0f) * MENU_SENSITIVITY_F;
             int ox = (int)s_accum_x;
@@ -1069,25 +1187,12 @@ static void USBPad_Input_Frame(qboolean in_game)
         InjectKey(s_usb_buttons[i].q3key,
                   (buttons & s_usb_buttons[i].bit) ? qtrue : qfalse);
 
-    qboolean l_pressed = lt > TRIGGER_THRESHOLD ? qtrue : qfalse;
-    qboolean r_pressed = rt > TRIGGER_THRESHOLD ? qtrue : qfalse;
-    if (l_pressed != s_old_ltrig) {
-        s_old_ltrig = l_pressed;
-        Com_QueueEvent(0, SE_KEY, K_JOY_USB_LTRIG, l_pressed, 0, NULL);
-    }
-    if (r_pressed != s_old_rtrig) {
-        s_old_rtrig = r_pressed;
-        Com_QueueEvent(0, SE_KEY, K_JOY_USB_RTRIG, r_pressed, 0, NULL);
-    }
+    /* Same InjectKey routing as the GC triggers — see that comment. */
+    InjectKey(K_JOY_USB_LTRIG, lt > TRIGGER_THRESHOLD ? qtrue : qfalse);
+    InjectKey(K_JOY_USB_RTRIG, rt > TRIGGER_THRESHOLD ? qtrue : qfalse);
 
-    /* No negation here, unlike GC/CC/DRC's -ly/-ry: those read raw hardware
-       sticks where up = positive, so they negate to get "up = negative"
-       (matches j_forward=-0.25's sign convention). USBHID_GetAxes() instead
-       returns values already converted from the controllers' raw HID Y-axis
-       byte (HID convention: up = 0x00, i.e. already negative after the
-       (byte-128)*256 conversion in each brand's _Parse()) — negating again
-       here would double-invert it. Confirmed on hardware: with the extra
-       negation, up/down were swapped on both sticks. */
+    /* Do NOT add -ly/-ry like GC/CC/DRC do - USB HID Y is already "up=negative"
+       coming out of _Parse(). Added it once anyway, swapped both sticks on HW. */
     short side  = (lx > -USB_STICK_DEADZONE && lx < USB_STICK_DEADZONE) ? 0 : lx;
     short fwd   = (ly > -USB_STICK_DEADZONE && ly < USB_STICK_DEADZONE) ? 0 : ly;
     short yaw   = (rx > -USB_STICK_DEADZONE && rx < USB_STICK_DEADZONE) ? 0 : rx;
@@ -1291,7 +1396,6 @@ void Wii_Input_Init(void)
     s_active_ctrl_type = -1;
     s_accum_x = s_accum_y = 0.0f;
     s_accum_cx = s_accum_cy = 0.0f;
-    s_old_ltrig = s_old_rtrig = qfalse;
     memset(s_old_axis, 0, sizeof(s_old_axis));
 
     PAD_Init();
@@ -1344,18 +1448,8 @@ void Wii_Input_Init(void)
        Wii_Input_USBHIDInit() below. */
 }
 
-/* Wired USB HID pad (Xbox One/360/Series/PS3/PS4/DualSense) — unconditional,
-   independent of WPAD_ENABLED, but deliberately NOT initialised from
-   Wii_Input_Init(). That function runs extremely early in main() (before
-   Wii_MountSD settles, before Wii_Net_Init, before GX/Com_Init) alongside
-   PAD_Init/WPAD_Init — both of which exercise IOS paths this port has
-   already proven safe that early (SI hardware access, and WPAD's own
-   carefully-tuned Bluetooth bring-up). The raw ogc/usb.h stack
-   (USB_Initialize/USB_GetDeviceList/USB_OpenDevice/USB_GetDescriptors —
-   all synchronous, blocking IOS calls) has never been exercised by this
-   codebase before this feature, and calling it this early caused a full
-   console hang on real hardware. Call this instead from wii_main.c after
-   Wii_Net_Init() has already proven IOS is fully up and servicing ioctls. */
+/* Deliberately NOT called from Wii_Input_Init() - the raw ogc/usb.h stack
+   full-on hangs the console if poked that early. Call after Wii_Net_Init(). */
 void Wii_Input_USBHIDInit(void)
 {
     USBHID_Init();
@@ -1374,16 +1468,11 @@ void Wii_Input_SetCvars(void)
     Cvar_Set("j_pitch_axis",   "3");
     Cvar_Set("j_yaw_axis",     "4");
 
-    /* Sensitivity cvars: register as CVAR_ARCHIVE so values are written to
-     * q3config.cfg and survive reboots. Only set the default if q3config.cfg
-     * has not already provided a value (i.e. the cvar is still at its
-     * engine-registered default of "0"). */
+    /* CVAR_ARCHIVE so these survive reboots in q3config.cfg. */
     Cvar_Get("j_side",    "0.25",   CVAR_ARCHIVE);
     Cvar_Get("j_forward", "-0.25",  CVAR_ARCHIVE);
-    /* j_pitch / j_yaw: fixed base scale — cl_sensitivity (the in-menu slider) is
-       multiplied on top in cl_input.c.  Force these with Cvar_Set so stale values
-       from an old q3config.cfg (which had no cl_sensitivity scaling) don't produce
-       unexpectedly high speeds after this change. */
+    /* Force these - a stale pre-cl_sensitivity-scaling q3config.cfg produces
+       absurd turn speed otherwise, and CVAR_ARCHIVE Cvar_Get won't override it. */
     Cvar_Set("j_pitch",   "0.002");
     Cvar_Set("j_yaw",     "-0.002");
 

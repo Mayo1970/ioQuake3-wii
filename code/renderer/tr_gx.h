@@ -17,7 +17,6 @@ typedef struct {
     float    depthNear;         /* depth range near [0,1] for GX_SetViewport */
     float    depthFar;          /* depth range far  [0,1] */
     int      vpX, vpY, vpW, vpH; /* current viewport (GX top-left coords) */
-    qboolean arraysInFlight;    /* fallback only (ring alloc failed): set after drawing from client arrays */
     qboolean tevDirty;          /* needs GX TEV stage recommit before next draw */
     int      vtxDescNumTex;     /* last-set vtx-desc TMU count: 1, 2, or -1=unset */
     qboolean alphaTestActive;   /* last GX_SetZCompLoc state */
@@ -52,7 +51,7 @@ extern int       s_gx_next_texnum;
 void GXBE_SetDefaultState(void);
 void GXBE_FrameEnd(void);          /* called from Wii_GX_EndFrame */
 
-/* Full GP sync (qglFinish equivalent): drains FIFO, clears arraysInFlight. */
+/* Full GP sync (qglFinish equivalent): drains FIFO. */
 void GXBE_Finish(void);
 
 /* State */

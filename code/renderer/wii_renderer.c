@@ -186,10 +186,8 @@ static refexport_t wii_re = {
     s_inPVS,               s_TakeVideoFrame,
 };
 
-/*
- * Called twice: (1) pre-boot with rimp==NULL → return no-op stub,
- * (2) from CL_InitRef with real rimp → wire qgl* and activate renderergl1.
- */
+/* Called twice: pre-boot with rimp==NULL returns the no-op stub;
+ * CL_InitRef's real call wires up qgl* and activates renderergl1. */
 extern void QGL_Init(void);
 extern refexport_t *tr_init_GetRefAPI_unused(int apiVersion, refimport_t *rimp);
 

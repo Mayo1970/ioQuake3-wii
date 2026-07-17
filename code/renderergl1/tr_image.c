@@ -556,9 +556,7 @@ Upload32
 ===============
 */
 #if defined(WII_NATIVE_GX)
-/* Set by R_CreateImage before calling Upload32 so the GX upload hooks
- * inside Upload32 know the destination slot and wrap mode without
- * changing Upload32's upstream signature. */
+/* Smuggled past Upload32's unchanged upstream signature via file statics. */
 static int s_gxUploadTexnum = -1;
 static int s_gxUploadWrap   = GL_REPEAT;
 #endif
@@ -795,10 +793,8 @@ static void Upload32( unsigned *data,
 	*format = internalFormat;
 
 #if defined(WII_NATIVE_GX)
-	/* scaledBuffer is the final level-0 image (scaled + lightscaled).
-	 * When mipmap is set, GXBE_Upload32 generates the full chain itself
-	 * (Phase 5), reducing scaledBuffer in place — the same mutation the
-	 * stock CPU mip loop below performs. */
+	/* GXBE_Upload32 generates the mip chain itself, in place - same
+	 * mutation the stock CPU mip loop below would do. */
 	GXBE_Upload32( scaledBuffer, scaled_width, scaled_height,
 	               (int)internalFormat, s_gxUploadTexnum, s_gxUploadWrap,
 	               mipmap );
@@ -807,8 +803,7 @@ static void Upload32( unsigned *data,
 #endif
 
 #if !defined(WII_NATIVE_GX)
-	/* native GX path generates its mip chain inside GXBE_Upload32 above;
-	 * skip this CPU mip loop — its uploads would be qgl no-ops anyway */
+	/* Skip this loop under native GX - its uploads would be no-ops anyway. */
 	if (mipmap)
 	{
 		int		miplevel;
@@ -921,10 +916,8 @@ image_t *R_CreateImage( const char *name, byte *pic, int width, int height,
 	GL_Bind(image);
 
 #if defined(WII_NATIVE_GX)
-	/* The GX upload happens INSIDE Upload32 (at the level-0 upload points),
-	 * so it gets the final scaled + picmipped + lightscaled buffer instead
-	 * of the original full-size pic. Pass slot/wrap via file statics to
-	 * keep Upload32's upstream signature. */
+	/* Upload32 does the real GX upload at its level-0 point, with the final
+	 * scaled buffer, not this original full-size pic. Slot/wrap smuggled below. */
 	s_gxUploadTexnum = (int)image->texnum;
 	s_gxUploadWrap   = glWrapClampMode;
 #endif

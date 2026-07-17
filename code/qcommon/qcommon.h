@@ -1019,9 +1019,8 @@ void CL_Shutdown(char *finalmsg, qboolean disconnect, qboolean quit);
 void CL_Frame( int msec );
 qboolean CL_GameCommand( void );
 #if defined(GEKKO)
-// Wii: true when a menu/UI is in front (main menu, browser, loading, or the
-// in-game Esc menu) rather than live gameplay. Used by Com_Frame to run menus
-// at a higher framerate than in-game. See [[perf-bottleneck-render-backend]].
+// True outside live gameplay, so Com_Frame can run menus at a higher fps
+// than in-game - menus are cheap, there's no world geometry to bottleneck on.
 qboolean CL_InMenu( void );
 #endif
 void CL_KeyEvent (int key, qboolean down, unsigned time);

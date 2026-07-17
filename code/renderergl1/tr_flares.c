@@ -287,11 +287,8 @@ void RB_TestFlare( flare_t *f ) {
 	// read back the z buffer contents
 #if defined(WII_NATIVE_GX)
 	{
-		// f->windowY is viewportY + a bottom-up offset within the viewport
-		// (R_TransformClipToWindow), but on GEKKO viewportY is stored
-		// top-down (tr_scene.c), so flip only the within-viewport part.
-		// GXBE_PeekDepth returns GL-equivalent window depth (see tr_gx.h),
-		// so the screenZ reconstruction below is unchanged.
+		// viewportY is top-down here, so only the within-viewport offset
+		// needs flipping - GXBE_PeekDepth's depth is already GL-equivalent.
 		int px = (int)f->windowX;
 		int py = backEnd.viewParms.viewportY
 		       + backEnd.viewParms.viewportHeight - 1

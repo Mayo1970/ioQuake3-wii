@@ -225,10 +225,8 @@ SURFACE SHADERS
 */
 
 #if defined(WII_NATIVE_GX)
-/* GX_SetArray pointers must be 32-byte aligned. The per-vertex sub-arrays
- * within shaderCommands_t (xyz stride-16, texCoords, colors) also start at
- * offsets that are multiples of 32 bytes from the struct base, so aligning
- * the struct itself satisfies the GX requirement for all of them. */
+/* GX_SetArray needs 32-byte alignment; aligning the struct covers every
+ * sub-array's offset too since they all land on 32-byte multiples. */
 shaderCommands_t	tess __attribute__((aligned(32)));
 #else
 shaderCommands_t	tess;

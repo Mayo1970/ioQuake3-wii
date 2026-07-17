@@ -32,8 +32,6 @@ extern "C" {
 
 static char wii_net_local_ip[16];
 
-static int s_net_ip_top_ready = 0;
-
 static inline int Wii_Net_Init(void)
 {
     char netmask[16] = {0};
@@ -50,8 +48,6 @@ static inline int Wii_Net_Init(void)
 
         if (r < 0)
             return (int)r;
-
-        s_net_ip_top_ready = 1;
     }
 
     /* 3 DHCP retries: runs before Com_Init, so a large count = black-screen hang on no-router. */

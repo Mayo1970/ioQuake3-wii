@@ -19,6 +19,9 @@ build/
 *.pk3
 qkey
 
+# CLASSIC's own bundled pak is our content, not retail data -- keep it tracked
+!fixes/baseq3/*.pk3
+
 # Legacy / retired tooling
 legacy/
 

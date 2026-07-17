@@ -354,10 +354,8 @@ sfxHandle_t	S_Base_RegisterSound( const char *name, qboolean compressed ) {
 	sfx_t	*sfx;
 
 #if defined(GEKKO)
-	/* ADPCM (4:1): Wii pool (6.3 MB) needs compression or eviction stalls in-game.
-	   Stereo sounds left raw by
-	   S_LoadSound's channels==1 check. Decode at mix time goes through
-	   sfxScratchBuffer (guaranteed non-NULL whenever the pool exists). */
+	/* ADPCM 4:1 - the 6.3MB pool needs the compression or eviction stalls
+	   the game mid-match reloading from SD. */
 	compressed = qtrue;
 #else
 	compressed = qfalse;

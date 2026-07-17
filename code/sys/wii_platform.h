@@ -144,8 +144,8 @@ static inline int mprotect(void *addr, size_t len, int prot) {
 #include <stdarg.h>
 #ifdef WII_DEBUG
 #include <unistd.h>
-/* One handle shared by ALL TUs (defined in wii_sys.c) — per-TU static gave each TU its own
- * append handle on the same FAT file, causing independent size views that overwrite each other. */
+/* Shared handle across all TUs - per-TU statics fought over the same FAT file
+ * and clobbered each other's size view. */
 extern FILE *wii_diag_fp;
 static inline FILE *wii_diag_open(void) {
     if (!wii_diag_fp) {
@@ -167,8 +167,8 @@ static inline void wii_diag(const char *fmt, ...) {
     va_end(ap);
     fflush(f);
 }
-/* fsync commits the FAT dir entry — line survives a hard crash where fflush alone leaves a stale
- * size in libfat's cache. Heavy SD I/O: load-path / error-path forensics only, never mid-frame. */
+/* fsync so the line survives a hard crash - fflush alone leaves libfat's
+ * cached size stale. Heavy SD I/O: load/error paths only, NEVER mid-frame. */
 static inline void wii_diag_sync(const char *fmt, ...) __attribute__((format(printf,1,2)));
 static inline void wii_diag_sync(const char *fmt, ...) {
     FILE *f = wii_diag_open();

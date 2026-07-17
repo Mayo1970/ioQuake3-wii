@@ -2990,11 +2990,8 @@ qboolean CL_CheckPaused(void)
 /*
 ==================
 CL_InMenu
-Wii: true when a menu/UI is in front rather than live gameplay, so Com_Frame
-can run menus at a higher framerate (60) than in-game (30). Covers the main
-menu / server browser / loading (clc.state != CA_ACTIVE) and the in-game Esc
-menu (KEYCATCH_UI). Same state distinction the input layer uses for its
-menu-vs-in-game handling.
+Wii: true outside live gameplay, so Com_Frame can run menus at 60fps
+instead of the in-game cap. Menus are free - no world geometry to draw.
 ==================
 */
 qboolean CL_InMenu( void )

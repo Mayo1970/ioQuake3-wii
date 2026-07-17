@@ -1693,8 +1693,7 @@ void NET_Sleep(int msec)
 		return;
 	}
 #endif
-	/* WII_NET_SLEEP_GUARD: Wii libogc select() hangs with no FDs in set.
-	 * Match the Windows behavior — bail out cleanly. */
+	/* libogc's select() just hangs with an empty fd_set. Bail like Windows does. */
 #ifdef GEKKO
 	if(highestfd == INVALID_SOCKET) return;
 #endif

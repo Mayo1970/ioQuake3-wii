@@ -865,7 +865,10 @@ given keynum.
 ===================
 */
 #if defined(GEKKO)
-static int wii_keynumstr_raw = 0;
+/* Non-static: wii_input.c's SaveControllerBindings() also toggles this so the
+   per-controller wii_binds_*.cfg files store canonical "JOYn" names —
+   Key_StringToKeynum can't parse the friendly labels back. */
+int wii_keynumstr_raw = 0;
 #endif
 
 char *Key_KeynumToString( int keynum ) {
@@ -882,9 +885,8 @@ char *Key_KeynumToString( int keynum ) {
 	}
 
 #if defined(GEKKO)
-	// Return controller-specific button names for JOY keys on Wii.
-	// Skipped when wii_keynumstr_raw is set (Key_WriteBindings) so cfg files
-	// always store canonical "JOYn" names that Key_StringToKeynum can parse back.
+	// Controller-specific button names for JOY keys; skipped when writing
+	// cfg files so they store canonical "JOYn" instead.
 	if (!wii_keynumstr_raw)
 	{
 		extern int Wii_Input_GetCtrlType(void);

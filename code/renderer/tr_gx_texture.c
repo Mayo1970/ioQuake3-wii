@@ -1,7 +1,5 @@
-/* tr_gx_texture.c — native GX texture upload and management (active under -DWII_NATIVE_GX).
- * Swizzles RGBA into 4x4-tiled RGB565/RGB5A3. GXBE_Upload32 must be called with the
- * final scaled buffer from Upload32, NOT the original pic (RGBA8 exhausted the heap).
- * Tex buffers use plain memalign/free — never use the MEM2 bump here. */
+/* Swizzles RGBA into 4x4-tiled RGB565/RGB5A3, fed Upload32's SCALED buffer
+ * (full RGBA8 ate the whole heap once). memalign/free only, never the bump. */
 #if defined(WII_NATIVE_GX)
 
 #include "tr_local.h"
@@ -320,7 +318,6 @@ void GXBE_ReadPixelsRGB(int x, int y, int w, int h, int padlen, byte *dst)
     DCInvalidateRange(buf, (u32)size);
 
     GX_DrawDone();
-    gxState.arraysInFlight = qfalse;
 
     GX_SetTexCopySrc((u16)cx, (u16)ctop, (u16)cw, (u16)ch);
     GX_SetTexCopyDst((u16)dstWd, (u16)ch, GX_TF_RGBA8, GX_FALSE);

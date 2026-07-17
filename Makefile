@@ -370,6 +370,7 @@ ZCONF_H_COPY := code/qcommon/zconf.h
 
 CFLAGS  = $(MACHDEP) \
           -pipe -O2 -Wall -Wno-unused-variable -Wno-missing-braces -Wno-cpp \
+          -MMD -MP \
           $(WII_DEBUG_FLAG) \
           $(GAMEMODE_FLAGS) \
           $(WII_INPUT_FLAGS) \
@@ -418,6 +419,24 @@ ALL_SRCS     := $(WII_C_SRCS) $(WII_CPP_SRCS) $(IOQ3_SRCS) $(IOQ3_ZLIB_SRCS)
 
 OBJS := $(patsubst %.c,$(BUILD)/%.o,$(filter %.c,$(ALL_SRCS))) \
         $(patsubst %.cpp,$(BUILD)/%.o,$(filter %.cpp,$(ALL_SRCS)))
+
+# Header dependency tracking: -MMD in CFLAGS emits a .d next to each .o, so
+# editing any header (wii_platform.h is force-included everywhere) rebuilds
+# exactly the objects that use it. Without this, header edits silently
+# produced mixed binaries unless you remembered `make clean`.
+DEPS := $(OBJS:.o=.d)
+-include $(DEPS)
+
+# Flag-change tracking: the stamp file holds the current CFLAGS; the recipe
+# runs every invocation (phony prereq) but only rewrites the file — bumping
+# its mtime and invalidating every .o — when the flags actually differ.
+# Closes the other half of the "make clean is mandatory" trap.
+CFLAGS_STAMP := $(BUILD)/.cflags-stamp
+.PHONY: cflags-stamp-force
+$(CFLAGS_STAMP): cflags-stamp-force
+	@mkdir -p $(BUILD)
+	@echo '$(CFLAGS)' | cmp -s - $@ || echo '$(CFLAGS)' > $@
+$(OBJS): $(CFLAGS_STAMP)
 
 #---------------------------------------------------------------------------------
 # Build rules
@@ -482,10 +501,12 @@ $(BUILD)/code/qcommon/common.o: code/qcommon/common.c
 # Bundled pk3 header for CLASSIC build — embedded verbatim as a C array.
 # Generated into $(BUILD)/ so each flavor gets its own copy path; the
 # -I$(BUILD) in CFLAGS makes the #include resolve without an absolute path.
-$(BUILD)/zpack_classic_embedded.h: fixes/baseq3/zpack-classic.pk3
+# Depends on the Makefile too: the generator recipe lives here, and a stale
+# header (e.g. old checksum symbol) otherwise survives generator changes.
+$(BUILD)/zpack_classic_embedded.h: fixes/baseq3/zpack-classic.pk3 Makefile
 	@mkdir -p $(dir $@)
 	@echo "GEN $@"
-	@python3 -c "import sys; d=open(sys.argv[1],'rb').read(); n=sys.argv[2]; print('static const unsigned char '+n+'[] = {'+','.join(str(b) for b in d)+'};'); print('static const unsigned int '+n+'_len = '+str(len(d))+';'); print('static const unsigned int '+n+'_csum = '+str(sum(d))+'u;')" fixes/baseq3/zpack-classic.pk3 zpack_classic_data > $@
+	@python3 -c "import sys, zlib; d=open(sys.argv[1],'rb').read(); n=sys.argv[2]; print('static const unsigned char '+n+'[] = {'+','.join(str(b) for b in d)+'};'); print('static const unsigned int '+n+'_len = '+str(len(d))+';'); print('static const unsigned int '+n+'_crc = '+str(zlib.crc32(d) & 0xffffffff)+'u;')" fixes/baseq3/zpack-classic.pk3 zpack_classic_data > $@
 
 ifeq ($(_CLASSIC),1)
 WII_MAIN_EXTRA_DEPS := $(BUILD)/zpack_classic_embedded.h
@@ -494,9 +515,10 @@ WII_MAIN_EXTRA_DEPS :=
 endif
 
 # net_ip.c and wii_main.c both inline wii_net.h; rebuild both when the shim changes.
-WII_NET_H := code/sys/wii_net.h
-$(BUILD)/code/sys/wii_main.o: code/sys/wii_main.c $(WII_NET_H) $(WII_MAIN_EXTRA_DEPS)
-$(BUILD)/code/qcommon/net_ip.o: code/qcommon/net_ip.c $(WII_NET_H)
+# Header deps now come from -MMD; the embedded-pk3 header stays an explicit
+# prerequisite because it must be *generated* before wii_main.c's first compile.
+$(BUILD)/code/sys/wii_main.o: code/sys/wii_main.c $(WII_MAIN_EXTRA_DEPS)
+$(BUILD)/code/qcommon/net_ip.o: code/qcommon/net_ip.c
 	@mkdir -p $(dir $@)
 	@echo "CC $<"
 	$(CC) $(CFLAGS) -DWII_INCLUDE_NET -c $< -o $@

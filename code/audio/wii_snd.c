@@ -1,4 +1,4 @@
-/* ASND-based audio backend for ioquake3-wii. */
+/* ASND backend. snd_main.c never runs on this port - see it and weep. */
 
 #include <asndlib.h>
 #include <ogc/cache.h>
@@ -90,7 +90,7 @@ void SNDDMA_BeginPainting(void)
 {
 }
 
-/* Writeback dcache so ASND DMA sees freshly mixed samples. */
+/* Skip this and ASND DMAs stale silence forever. Ask me how I know. */
 void SNDDMA_Submit(void)
 {
     if (!s_snd_init)

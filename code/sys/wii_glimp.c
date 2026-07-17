@@ -6,8 +6,7 @@
 #include "wii_glimp.h"
 #include "wii_platform.h"
 #if defined(WII_NATIVE_GX)
-/* Only GXBE_FrameEnd is needed here; avoid pulling tr_gx.h's renderer types
- * (glIndex_t, GLuint, etc.) into the sys compilation unit. */
+/* Bare extern - pulling in tr_gx.h's renderer types here is not worth it. */
 extern void GXBE_FrameEnd(void);
 #endif
 
@@ -25,8 +24,7 @@ int wii_video_mode_choice = 0; /* 0=default, 1=240p NTSC, 2=264p PAL */
 #if defined(WII_GX_PROFILE) && WII_GX_PROFILE
 #include <ogc/lwp_watchdog.h>
 
-/* GP bottleneck profiler. Logs GP perf counters to diag.txt each GXPROF_WINDOW frames.
- * xf_wait_out_clk high => GP-bound (native GX won't help); ~0 with large bk => FIFO/CPU-bound. */
+/* GP bottleneck profiler - tells you whether chasing the JIT is a waste of time (it is). */
 #define GXPROF_WINDOW 128
 
 static const struct { u32 p0, p1; const char *l0, *l1; } s_gxprof_cfg[] = {
@@ -168,15 +166,14 @@ qboolean Wii_GX_Init(void)
 void Wii_GX_EndFrame(void)
 {
 #if !defined(WII_NATIVE_GX)
-    /* ogx_prepare_swap_buffers runs GX_SetDrawSync(0) — would stomp native staging-ring fences. */
+    /* Never call this under WII_NATIVE_GX - it stomps the staging-ring fences. */
     {
         extern int ogx_prepare_swap_buffers(void);
         ogx_prepare_swap_buffers();
     }
 #endif
 
-    /* EFB→XFB copy then GX_DrawDone to ensure the buffer is ready before VI.
-     * No VIDEO_WaitVSync — hard vsync halves FPS when a frame runs just over 16.6 ms. */
+    /* No VIDEO_WaitVSync here - hard vsync halves FPS the instant a frame runs long. */
     s_fb_index ^= 1;
     GX_CopyDisp(s_framebuf[s_fb_index], GX_TRUE);
     GX_DrawDone();

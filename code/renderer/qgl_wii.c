@@ -1,4 +1,4 @@
-/* Wire ioQ3's qgl* function pointers to OpenGX. */
+/* Wire ioQ3's qgl* pointers to GX (or OpenGX, if you like flickering). */
 
 #include "tr_local.h"
 #ifdef WII_DEBUG

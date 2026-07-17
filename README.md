@@ -196,6 +196,19 @@ Per-controller bindings are saved separately:
 - `wii_binds_drc.cfg`
 - `wii_binds_usb.cfg`
 
+### Binding buttons from the Controls menu
+
+Every button can be rebound in-game from **Setup → Controls**. Because A, B
+and the D-pad double as menu-navigation keys, binding uses a modifier:
+
+1. Select the action you want to bind and activate it ("press key" appears).
+2. **Hold the modifier button** — **Minus** on Wiimote / Classic Controller /
+   Wii U GamePad, **Z** on a GameCube pad, **Back/Share** on a USB pad — and
+   press the button you want to assign. That's it; works for A, B, D-pad,
+   Start/Plus and the analog triggers too.
+3. To bind the modifier button itself, **tap it on its own** (press and
+   release while the menu is waiting for a key).
+
 ### Wired USB HID Gamepad
 
 Confirmed working on real hardware:
@@ -383,11 +396,14 @@ The Wii boot cmdline sets conservative defaults before `Com_Init`, including:
 - `com_soundMegs 2`
 - `com_maxfps`: from `WII_MAXFPS`, default 60
 - `r_fastsky 0`
-- `r_lodbias 1`
 - `r_picmip 2`
-- `r_dynamic 0`
+- `r_gamma 1.3`
+- `r_simpleMipMaps 0`
+- `r_dynamic 0` (a harmless cvar-name typo for the disabled `r_dynamiclight`
+  — fixing it hard-crashes release builds; see Known Issues)
 - `r_flares 0`
-- `sv_maxclients 8`
+- `sv_pure 0`
+- `sv_maxclients 8` (the engine's own default, not set explicitly on the cmdline)
 - `cl_allowDownload 1`
 
 Controller, joystick, and IR cvars that do not need to exist before
@@ -440,6 +456,17 @@ arena so large OA/TA QVMs do not burn sbrk on allocator overhead.
   fixable from this codebase.
 - `r_measureOverdraw` is not supported on the native GX backend because there
   is no stencil path there.
+- `r_dynamiclight 0` hard-crashes release builds on the native GX backend (a
+  debug build with the same cmdline boots fine). The boot cmdline sets the
+  cvar under its old misspelled name (`r_dynamic`) as a workaround, which
+  leaves dynamic lights on at the engine default. Root cause not yet isolated.
+- Some mirror surfaces can render black from certain viewing angles on the
+  native GX backend; under investigation.
+- The default boot video mode (true interlaced, whatever
+  `VIDEO_GetPreferredMode` returns) can crop the top of the picture on some
+  TVs/upscalers over composite or RF. This happens in the display's own
+  deinterlacer, after this port's output, so it can't be fixed render-side.
+  Pick the 240p or 264p mode at the boot prompt instead if you see this.
 
 ---
 

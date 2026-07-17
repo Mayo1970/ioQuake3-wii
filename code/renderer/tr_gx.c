@@ -326,31 +326,18 @@ void GXBE_FrameEnd(void)
 {
     /* Wii_GX_EndFrame has just returned from GX_DrawDone(): the GP is idle,
      * so every staged draw has been consumed and the ring can restart. */
-    gxState.arraysInFlight = qfalse;
     gxbe_ring_reset();
 }
 
-/* ----------------------------------------------------------------- */
-/* GXBE_Finish — qglFinish equivalent (full GP sync)                  */
-/* ----------------------------------------------------------------- */
-
+/* qglFinish equivalent - full GP sync. */
 void GXBE_Finish(void)
 {
     GX_DrawDone();
-    gxState.arraysInFlight = qfalse;
     gxbe_ring_reset();
 }
 
-/* ----------------------------------------------------------------- */
-/* GXBE_PeekDepth — read one EFB Z value (flare visibility tests)     */
-/*                                                                    */
-/* x/y are EFB pixel coordinates, TOP-DOWN origin. The Z buffer holds */
-/* 24-bit linear screen z (GX_ZC_LINEAR pixel format in wii_glimp.c). */
-/* Because GXBE_LoadProjectionGL's z-row conversion zGX = (zGL - w)/2 */
-/* makes GX window depth identical to GL window depth, the normalized */
-/* result feeds GL-style depth reconstruction unchanged.              */
-/* ----------------------------------------------------------------- */
-
+/* Read one EFB Z value for flare visibility tests, top-down EFB coords.
+   Window depth matches GL's thanks to the z-row conversion in LoadProjectionGL. */
 float GXBE_PeekDepth(int x, int y)
 {
     u32 z = 0;
@@ -360,18 +347,12 @@ float GXBE_PeekDepth(int x, int y)
     if (y < 0) y = 0;
     if (y > glConfig.vidHeight - 1) y = glConfig.vidHeight - 1;
 
-    /* Every prior draw's Z must have landed in the EFB before the peek.
-     * Unconditional sync: cheap when the GP is already idle, and this is
-     * a low-frequency path (r_flares defaults to 0). */
+    /* Unconditional sync - cheap when GP's already idle, r_flares is low-frequency anyway. */
     GXBE_Finish();
 
     GX_PeekZ((u16)x, (u16)y, &z);
     return (float)z / 16777215.0f;   /* 24-bit -> [0,1] */
 }
-
-/* ----------------------------------------------------------------- */
-/* GXBE_GL_State                                                      */
-/* ----------------------------------------------------------------- */
 
 void GXBE_GL_State(unsigned long stateBits)
 {
@@ -677,16 +658,8 @@ void GXBE_SetPolygonOffsetEnabled(int enabled)
     gxbe_load_projection();
 }
 
-/* ----------------------------------------------------------------- */
-/* GXBE_Clear — glClear emulation                                     */
-/*                                                                    */
-/* GX has no clear call; mid-frame clears (per-view depth clear,      */
-/* hyperspace color flash) are done by drawing a quad covering the    */
-/* current viewport, clipped by the current scissor — the same region */
-/* glClear would affect. Depth clears write the far plane by forcing  */
-/* the viewport z range to [1,1] for the quad.                        */
-/* All pipeline state touched here is restored before returning.      */
-/* ----------------------------------------------------------------- */
+/* GX has no clear call - fake it by drawing a full-viewport quad, scissored
+   the same as glClear would be. Everything touched here gets restored after. */
 
 void GXBE_Clear(qboolean clearColor, qboolean clearDepth, float r, float g, float b)
 {
@@ -847,6 +820,7 @@ void GXBE_DrawTess(int numIndexes, const glIndex_t *indexes)
     int numTex;
     const void *posPtr, *clrPtr, *texPtr0, *texPtr1;
     u32 posSize, clrSize, texSize0, texSize1;
+    qboolean syncAfterDraw = qfalse;
 
     if (numIndexes <= 0 || tess.numVertexes <= 0)
         return;
@@ -881,11 +855,10 @@ void GXBE_DrawTess(int numIndexes, const glIndex_t *indexes)
 
             DCFlushRange(blk, a_pos + a_clr + a_t0 + a_t1);
         } else {
-            /* Ring alloc failed: drain GP then draw from client arrays in place. */
-            if (gxState.arraysInFlight) {
-                GX_DrawDone();
-                gxState.arraysInFlight = qfalse;
-            }
+            /* Ring alloc failed: draw from client arrays in place and sync
+             * right after GX_End below — the caller rewrites tess as soon as
+             * we return, so deferring the sync to the next draw is a race. */
+            syncAfterDraw = qtrue;
             posPtr  = gxState.posPtr;
             clrPtr  = gxState.clrPtr;
             texPtr0 = gxState.texPtr[0];
@@ -897,8 +870,6 @@ void GXBE_DrawTess(int numIndexes, const glIndex_t *indexes)
             GXBE_DCFLUSH(texPtr0, texSize0);
             if (numTex == 2)
                 GXBE_DCFLUSH(texPtr1, texSize1);
-
-            gxState.arraysInFlight = qtrue;  /* sync again before next draw */
         }
     }
 
@@ -945,7 +916,13 @@ void GXBE_DrawTess(int numIndexes, const glIndex_t *indexes)
             GX_TexCoord1x16(idx);
     }
     GX_End();
-    /* Ring path: no in-flight flag needed — staged copy is immutable until fence-recycled. */
+
+    /* Fallback (no ring): the GP is still reading the client arrays we just
+     * pointed it at; block until it's done before the caller rewrites them.
+     * Ring path needs nothing — the staged copy is immutable until
+     * fence-recycled. */
+    if (syncAfterDraw)
+        GX_DrawDone();
 }
 
 #else  /* !WII_NATIVE_GX */

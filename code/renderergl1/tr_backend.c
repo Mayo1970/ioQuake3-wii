@@ -443,10 +443,8 @@ static void SetViewportAndScissor( void ) {
 #if defined(WII_NATIVE_GX)
 	GXBE_LoadProjectionGL( backEnd.viewParms.projectionMatrix );
 
-	/* viewportY is stored top-down on GEKKO (tr_scene.c) and GX viewport/
-	 * scissor are also top-down, so both pass through directly — no flip,
-	 * no OpenGX back-solve. Scissor is clamped to the screen (overhanging
-	 * UI rects like Player Settings y=-40 h=560). */
+	/* Both viewportY and GX are top-down, so this passes through with no
+	 * flip. Scissor clamped to screen - some UI rects overhang (y=-40 h=560). */
 	{
 		int vx  = backEnd.viewParms.viewportX;
 		int vy  = backEnd.viewParms.viewportY;
@@ -571,13 +569,8 @@ void RB_BeginDrawingView (void) {
 	// clip to the plane of the portal
 	if ( backEnd.viewParms.isPortal ) {
 #if defined(WII_NATIVE_GX)
-		/* GX has no user clip planes — clip via oblique near-plane
-		 * projection instead (replaces the projection loaded in
-		 * SetViewportAndScissor for this portal view only; the next
-		 * view reloads the plain one). The eye-space plane is exactly
-		 * what GL would store from qglClipPlane under MV = s_flipMatrix:
-		 * p_eye = flip^-T * plane2, and the flip is orthonormal so
-		 * flip^-T == flip => p_eye = (-p2[1], p2[2], -p2[0], p2[3]). */
+		/* GX has no user clip planes - oblique near-plane projection instead,
+		 * for this portal view only (next view reloads the plain one). */
 		float	plane[4];
 		float	plane2[4];
 		float	eyePlane[4];
@@ -976,9 +969,7 @@ void RE_UploadCinematic (int w, int h, int cols, int rows, const byte *data, int
 		tr.scratchImage[client]->width = tr.scratchImage[client]->uploadWidth = cols;
 		tr.scratchImage[client]->height = tr.scratchImage[client]->uploadHeight = rows;
 #if defined(WII_NATIVE_GX)
-		/* RoQ frames are opaque -> GL_RGB8 selects GX_TF_RGB565.
-		 * No mipmaps: scratch images are redrawn every frame, and
-		 * mipmap=qfalse guarantees `data` (const here) is not mutated. */
+		/* RoQ frames are opaque -> RGB565. No mipmaps - redrawn every frame anyway. */
 		GXBE_Upload32( (unsigned *)data, cols, rows, GL_RGB8,
 		               (int)tr.scratchImage[client]->texnum, GL_CLAMP, qfalse );
 #else

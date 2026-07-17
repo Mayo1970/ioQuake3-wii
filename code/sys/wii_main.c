@@ -14,6 +14,7 @@ void *__ppc_main_sp __attribute__((section(".sdata"))) = &s_mainStack[sizeof(s_m
 
 #ifdef CLASSIC
 #include "zpack_classic_embedded.h"
+#include "zlib.h"   /* crc32() for the extraction gate */
 #endif
 
 #include "qcommon/q_shared.h"
@@ -65,9 +66,10 @@ static qboolean Wii_FindDataRoot(void)
     return qfalse;
 }
 
-/* FAT cache size: 16 pages (512 KB) for Q3/OA/CLASSIC release, 4 pages (128 KB) for TA/debug.
-   See CLAUDE.md for rationale (TA memory-tight, debug diagnostic baseline). */
-#if defined(STANDALONETA) || defined(WII_MODSELECT) || defined(STANDALONEOA) || defined(WII_DEBUG)
+/* 16 pages (512 KB) FAT cache for Q3A release only; 4 pages (128 KB)
+   elsewhere. CLASSIC stays at 4 - its embedded zpack is already memory-tight. */
+#if defined(STANDALONETA) || defined(WII_MODSELECT) || defined(STANDALONEOA) || \
+    defined(WII_DEBUG) || defined(CLASSIC)
 #define WII_FAT_CACHE_PAGES 4
 #else
 #define WII_FAT_CACHE_PAGES 16
@@ -155,12 +157,7 @@ static void Wii_BootPad_Poll(qboolean *pUp, qboolean *pDown, qboolean *pLeft, qb
 static char wii_selected_fsgame[MAX_QPATH] = "";
 
 /* A directory only counts as a mod if it ships at least one *.pk3 - matches
-   FS_Startup's own behavior (it loads every *.pk3 in a mod dir by wildcard,
-   the "pakN" naming is just id's convention, not a requirement - mods like
-   Rocket Arena ship arbitrarily-named pk3s). zpack-classic.pk3 can never
-   show up here regardless of naming: it only ever lives inside baseq3,
-   which Wii_ScanModDirs() skips outright, and this flavor never defines
-   CLASSIC, so Wii_ExtractBundledZpackClassic() never even runs. */
+   FS_Startup, which loads any *.pk3 by wildcard, not just "pakN". */
 static qboolean Wii_DirHasPak(const char *dirpath)
 {
     DIR *d = opendir(dirpath);
@@ -172,10 +169,8 @@ static qboolean Wii_DirHasPak(const char *dirpath)
         size_t len = strlen(de->d_name);
         if (len < 5) continue; /* shortest possible "X.pk3" */
         if (Q_stricmp(de->d_name + len - 4, ".pk3") != 0) continue;
-        /* Belt-and-suspenders: this flavor never writes zpack-classic.pk3
-           (Wii_ExtractBundledZpackClassic is CLASSIC-only), but a card
-           shared with a CLASSIC install could still have one sitting in a
-           mod folder by hand. No real mod pak is ever named this. */
+        /* Belt-and-suspenders: a card shared with a CLASSIC install could have
+           this sitting in a mod folder. No real mod pak is ever named this. */
         if (Q_stricmp(de->d_name, "zpack-classic.pk3") == 0) continue;
         found = qtrue;
         break;
@@ -209,10 +204,8 @@ static int Wii_ScanModDirs(char names[][MAX_QPATH], int maxNames)
     return count;
 }
 
-/* Boot-time mod picker. Runs on the libogc framebuffer console set up by
-   Wii_InitConsole() - GX/VM/FS aren't up yet, so this stays independent of
-   the full input/UI stack (Wii_Input_Frame needs Com_QueueEvent, which needs
-   Com_Init). Input comes from Wii_BootPad_Poll() above. */
+/* Runs on the raw libogc console - GX/VM/FS aren't up yet, so this can't
+   use the real input stack (needs Com_QueueEvent, needs Com_Init). */
 static void Wii_ModSelect_Run(void)
 {
     char names[WII_MODSEL_MAX_MODS][MAX_QPATH];
@@ -254,11 +247,8 @@ static void Wii_ModSelect_Run(void)
 }
 #endif /* WII_MODSELECT */
 
-/* Boot-time video mode picker. Runs on the libogc framebuffer console set up
-   by Wii_InitConsole() - GX/VM/FS aren't up yet. Input comes from
-   Wii_BootPad_Poll() above. UP keeps VIDEO_GetPreferredMode() (today's
-   default), LEFT selects 240p NTSC, RIGHT selects 264p PAL. No input within
-   10 seconds falls back to UP/default. */
+/* UP = VIDEO_GetPreferredMode() default, LEFT = 240p NTSC, RIGHT = 264p PAL.
+   10s of no input falls back to default. */
 static void Wii_VideoModeBootPrompt(void)
 {
     const u32 DEADLINE_MS = 10000;
@@ -297,48 +287,55 @@ static void Wii_VideoModeBootPrompt(void)
 extern u32 Wii_MEM2_Init(void);
 
 #ifdef CLASSIC
-static unsigned int Wii_FileByteSum(const unsigned char *data, unsigned int len)
-{
-    unsigned int sum = 0, i;
-    for (i = 0; i < len; i++) sum += data[i];
-    return sum;
-}
-
 static void Wii_ExtractBundledZpackClassic(void)
 {
     char destdir[72], destpath[88];
     snprintf(destdir,  sizeof(destdir),  "%s/baseq3",              wii_dev_root);
     snprintf(destpath, sizeof(destpath), "%s/zpack-classic.pk3",   destdir);
 
-    /* Skip if existing file already matches embedded copy (checksum gate). */
+    /* Skip only if the on-disk file matches the embedded copy exactly:
+       same size (a longer file with a matching prefix is still stale) and
+       same CRC32. */
     FILE *ef = fopen(destpath, "rb");
     if (ef) {
-        unsigned char *buf = malloc(zpack_classic_data_len);
-        if (buf) {
-            size_t n = fread(buf, 1, zpack_classic_data_len, ef);
-            fclose(ef);
-            if (n == zpack_classic_data_len &&
-                Wii_FileByteSum(buf, (unsigned int)n) == zpack_classic_data_csum) {
+        long fsz = (fseek(ef, 0, SEEK_END) == 0) ? ftell(ef) : -1;
+        if (fsz == (long)zpack_classic_data_len) {
+            rewind(ef);
+            unsigned char *buf = malloc(zpack_classic_data_len);
+            if (buf) {
+                size_t n = fread(buf, 1, zpack_classic_data_len, ef);
+                qboolean match = (n == zpack_classic_data_len &&
+                    crc32(crc32(0L, Z_NULL, 0), buf, (uInt)n) == zpack_classic_data_crc);
                 free(buf);
-                return;
+                if (match) {
+                    fclose(ef);
+                    return;
+                }
             }
-            free(buf);
-        } else {
-            fclose(ef);
         }
+        fclose(ef);
     }
 
     mkdir(destdir, 0755);
     FILE *f = fopen(destpath, "wb");
     if (!f) { printf("[wii] CLASSIC: cannot write %s\n", destpath); return; }
-    fwrite(zpack_classic_data, 1, zpack_classic_data_len, f);
-    fclose(f);
-    printf("[wii] CLASSIC: extracted zpack-classic.pk3\n");
+    size_t wr = fwrite(zpack_classic_data, 1, zpack_classic_data_len, f);
+    if (fclose(f) != 0 || wr != zpack_classic_data_len)
+        printf("[wii] CLASSIC: short write on %s (SD full/removed?) — "
+               "pk3 is incomplete, will re-extract next boot\n", destpath);
+    else
+        printf("[wii] CLASSIC: extracted zpack-classic.pk3\n");
 }
 #endif
 
-static void wii_power_cb(void)              { exit(0); }
-static void wii_reset_cb(u32 irq, void *ctx){ (void)irq; (void)ctx; exit(0); }
+/* Power/reset callbacks run in IOS callback context — never exit() there
+   (blocking-in-callback hazard, and it would skip IN_Shutdown's binding
+   save). Latch a flag, same pattern as HOME; the main loop consumes it. */
+static volatile qboolean s_power_requested = qfalse;
+static volatile qboolean s_reset_requested = qfalse;
+qboolean wii_poweroff_requested = qfalse;   /* read by Sys_Quit (wii_sys.c) */
+static void wii_power_cb(void)              { s_power_requested = qtrue; }
+static void wii_reset_cb(u32 irq, void *ctx){ (void)irq; (void)ctx; s_reset_requested = qtrue; }
 
 #ifdef WII_DEBUG
 void crash_mark(const char *msg)
@@ -412,9 +409,8 @@ int main(int argc, char *argv[])
         boot_mark(net_result == 0 ? "Network OK" : "Network failed");
     }
 
-    /* Deliberately deferred until after Wii_Net_Init(): the raw ogc/usb.h
-       stack this uses is untested territory this early in boot (unlike
-       PAD_Init/WPAD_Init above, which exercise already-proven IOS paths). */
+    /* Deferred until after Wii_Net_Init() - see wii_input.c for why calling
+       this any earlier hangs the console outright. */
     Wii_Input_USBHIDInit();
     boot_mark("USB HID pad init done");
 
@@ -438,20 +434,12 @@ int main(int argc, char *argv[])
     snprintf(cmdline + strlen(cmdline), sizeof(cmdline) - strlen(cmdline),
         "+set r_mode -1 "
         "+set r_picmip 2 "
-        /* r_dynamiclight 0 (fixing the long-standing "r_dynamic" typo below
-           this comment used to have) was tried and reverted: it's the first
-           time the native-GX backend's zero-dlight render path has ever
-           executed on this port, and it hard-crashes release (NDEBUG/-O2)
-           builds while a debug build boots fine with the identical cmdline -
-           points to a real bug in that unexercised path, not just a cvar
-           flip. Needs isolation/investigation before retrying. */
+        /* Keep the "r_dynamic" typo - the real cvar hard-crashes release
+           builds (debug boots fine, unhelpfully). See CLAUDE.md before touching this. */
         "+set r_dynamic 0 "
         "+set r_flares 0 "
         "+set r_fastsky 0 "
-        /* r_lodbias intentionally not set: tr_model.c's GEKKO loader only
-           ever loads LoD 0 and duplicates that pointer into the LoD 1/2
-           slots, so this cvar is inert on Wii regardless of value - not
-           worth spending a scarce cmdline slot on. */
+        /* r_lodbias deliberately absent - it's dead on Wii, don't waste a slot on it. */
         "+set r_gamma 1.3 "
         "+set r_subdivisions 20 "
         "+set r_simpleMipMaps 0 "
@@ -462,12 +450,8 @@ int main(int argc, char *argv[])
         "+set s_khz 22 "
         "+set com_soundMegs 2 "
         "+set sv_pure 0 "
-        /* No "+set sv_maxclients 8" here on purpose - sv_init.c's own
-           Cvar_Get("sv_maxclients", "8", ...) default already matches, and
-           this cmdline sits right at Com_ParseCommandLine's 31-usable-line
-           MAX_CONSOLE_LINES budget (see the fs_game append below) - a 32nd
-           "+set" here would silently merge into the previous line instead of
-           landing in its own slot. Don't add tokens back without recounting. */
+        /* No "sv_maxclients 8" - the default already matches, and we're at
+           the 31-line MAX_CONSOLE_LINES cap. Recount before adding a token back. */
 
 #if !defined(STANDALONEOA) && !defined(STANDALONETA)
         "+set com_standalone 0 "
@@ -487,20 +471,14 @@ int main(int argc, char *argv[])
 #if defined(STANDALONETA)
         " +set fs_game missionpack"
 #elif defined(WII_FSGAME) && !defined(WII_MODSELECT)
-        /* Skipped under WII_MODSELECT: the runtime picker below already appends its
-           own "+set fs_game <selected>" slot, and this cmdline sits right at the
-           31-usable-line MAX_CONSOLE_LINES budget (see the note above) - stacking
-           both a compile-time and a runtime fs_game append overflows to a 32nd
-           token, which Com_ParseCommandLine silently merges into the previous
-           line instead of giving it its own slot. */
+        /* Skipped under WII_MODSELECT - the runtime picker below appends its own
+           fs_game slot, and stacking both overflows the 31-line cap silently. */
         " +set fs_game " WII_FSGAME
 #endif
     );
 
 #ifdef WII_MODSELECT
-    /* Selected at the boot-time picker above; empty means baseq3 only.
-       Appended as its own +set slot - see AGENTS/CLAUDE cmdline note on the
-       32-slot MAX_CONSOLE_LINES cap (TA already runs a fs_game slot at 32). */
+    /* Selected at the boot-time picker above; empty means baseq3 only. */
     if (wii_selected_fsgame[0]) {
         snprintf(cmdline + strlen(cmdline), sizeof(cmdline) - strlen(cmdline),
                   " +set fs_game %s", wii_selected_fsgame);
@@ -555,9 +533,11 @@ int main(int argc, char *argv[])
     while (1) {
         Com_Frame();
 
-        /* Check HOME latch set by Wii_Input_Frame() inside Com_Frame() — don't poll again. */
-        if (Wii_Input_HomePressed()) {
-            Com_Quit_f();
+        /* HOME latch is set by Wii_Input_Frame() inside Com_Frame() — don't
+           poll again. Power/reset latches come from the SYS callbacks. */
+        if (s_power_requested || s_reset_requested || Wii_Input_HomePressed()) {
+            wii_poweroff_requested = s_power_requested;
+            Com_Quit_f();   /* clean shutdown; ends in Sys_Quit, never returns */
             break;
         }
     }

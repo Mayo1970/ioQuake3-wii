@@ -36,10 +36,10 @@ Default build (`make dol`) is **native GX renderer + native-PPC JIT QVMs +
 - `make WII_MAXFPS=30 dol` — lower the in-game cap (menus/loading stay 60).
 
 **Switching renderer backends requires `make clean`** — a
-`$(BUILD)/.backend-*` stamp aborts the build otherwise, since the `.o` files
-don't depend on the Makefile and would link with mixed flags. Same hazard
-applies to any CFLAGS change (e.g. release `-DNDEBUG` vs debug): `make clean`
-first.
+`$(BUILD)/.backend-*` stamp aborts the build otherwise. Header and CFLAGS
+edits no longer need it: `-MMD` dep files rebuild objects when headers
+change, and a `$(BUILD)/.cflags-stamp` invalidates every object when the
+flags differ from the last build.
 
 Copy the produced `boot.dol` to the matching app path on the data device:
 - Q3A: `<dev>:/apps/ioquake3/boot.dol`
@@ -98,7 +98,8 @@ No debugger available. Build a `debug` target and read SD logs:
 - **QVM JIT (default `WII_VM_NATIVE=1`):** works but gives no FPS gain — the bottleneck is the render backend (`bk`), not VM execution. The JIT's value is lower hunk use (compiled code lives off-hunk via the `s_vmcode` reuse table), so big maps that OOM the interpreter load. Don't chase it for framerate.
 - **`vm.c` uses stock power-of-2 data rounding.** Older docs claimed a non-power-of-2 `dataAlloc` change saves TA memory — that change is **NOT in the tree** (verified absent). TA's headroom comes from the dynamic MEM2 bump in `wii_sys.c` alone. Don't assume the vm.c change exists.
 - **Button label tables in `cl_keys.c`** are parallel arrays to the button maps in `wii_input.c`. If you reorder the button maps, update the label tables to match.
-- **Per-controller cfg files** (`wii_binds_gc.cfg`, etc.) are saved in `IN_Shutdown`, not `Sys_Quit`. Don't move them later in the shutdown sequence.
+- **Per-controller cfg files** (`wii_binds_gc.cfg`, etc.) are saved in `IN_Shutdown`, not `Sys_Quit`. Don't move them later in the shutdown sequence. They must be written with canonical `JOYn` key names (`wii_keynumstr_raw = 1` around the save loop) — the friendly labels ("A", "ZR") don't parse back through `Key_StringToKeynum`.
+- **Menu bind-capture modifier** (`wii_input.c` `MenuRawLayer`): holding Minus (GC: Z, USB: Back) in a menu switches button emission from the menu map (K_ENTER/K_ESCAPE/arrows) to the in-game K_JOYn map so the retail Controls menu can bind any button; tapping the modifier alone emits its own JOY code. Don't emit both maps at once (double menu activation), and any new menu-key emission path must respect the raw layer + its release-suppression mask.
 - **`STANDALONEOA` must NOT define `STANDALONE`** — OA needs the `#ifndef STANDALONE` guards active for the legacy protocol version and master-server name.
 - **TA search-path ordering:** `BASEGAME` must stay `"baseq3"`. Setting it to `"missionpack"` puts baseq3 at the head of the search path and its `ui.qvm` (API v4) shadows missionpack's (API v6) — the TA menu never appears.
 - **`r_lodbias`** does not reduce memory use — it only selects an already-loaded LoD tier. It cannot fix the "Memory is low / deferred model" issue.

@@ -166,9 +166,8 @@ void VM_StackTrace( vm_t *vm, int programCounter, int programStack ) {
 ====================
 VM_OperandBytes
 
-Operand width for the opcodes that aren't a single byte. Shared by the
-sizing pass and the expansion pass in VM_PrepareInterpreter so the two
-can never disagree about how many ints the expanded code needs.
+Shared by both VM_PrepareInterpreter passes so they can never disagree
+about how many ints the expanded code needs.
 ====================
 */
 static int VM_OperandBytes( int op ) {
@@ -220,10 +219,8 @@ void VM_PrepareInterpreter( vm_t *vm, vmHeader_t *header ) {
 
 	code = (byte *)header + header->codeOffset;
 
-	// sizing pass: count the ints the expanded code needs, so the hunk
-	// allocation is exact instead of the worst case codeLength*4 (which
-	// assumes every code byte expands to an int — ~2x what real QVMs use,
-	// several MB across the three VMs on the 32 MB Wii hunk)
+	// Sizing pass: exact int count instead of the worst-case codeLength*4,
+	// which was ~2x real usage - several MB we don't have on this hunk.
 	int_pc = byte_pc = 0;
 	instruction = 0;
 	while ( instruction < header->instructionCount ) {
@@ -297,10 +294,8 @@ void VM_PrepareInterpreter( vm_t *vm, vmHeader_t *header ) {
 
 	}
 
-	// the program counter bounds checks in VM_CallInterpreted compare int
-	// indices against codeLength; with the exact-size buffer the emitted
-	// int count is the correct bound (the old codeLength*4 buffer made the
-	// byte length coincide with the buffer's int capacity)
+	// VM_CallInterpreted's PC bounds check compares int indices against
+	// this, so it must be the emitted int count, not the byte length.
 	vm->codeLength = int_pc;
 
 	wii_diag("VM_PrepareInterpreter: %s pass1 done int_pc=%d\n", vm->name, int_pc);

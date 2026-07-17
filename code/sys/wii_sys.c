@@ -35,8 +35,18 @@ void Sys_Init(void)
 
 void Sys_Quit(void)
 {
+    extern qboolean wii_poweroff_requested;   /* set in wii_main.c's loop */
+
     Wii_Snd_Shutdown();
     Wii_GX_Shutdown();
+    /* Power button actually powers off; HOME/reset just exit(0) to HBC.
+       WPAD must shut down first or the STM poweroff ioctl silently fails. */
+    if (wii_poweroff_requested) {
+#if WPAD_ENABLED
+        WPAD_Shutdown();
+#endif
+        SYS_ResetSystem(SYS_POWEROFF, 0, 0);
+    }
     exit(0);
 }
 
@@ -636,6 +646,8 @@ u32 Wii_MEM2_Init(void)
     u32 bump  = (total > SBRK_RESERVE) ? total - SBRK_RESERVE : 0;
     if (bump > MEM2_BUMP_MAX) bump = MEM2_BUMP_MAX;
 #else
+    /* Fixed 33 MB - don't unify onto TA's SBRK_RESERVE formula, it broke
+       CLASSIC on real HW (its embedded zpack eats memory before this runs). */
     u32 bump  = (total >= MEM2_BUMP_SIZE) ? MEM2_BUMP_SIZE : total;
 #endif
 
@@ -676,18 +688,6 @@ void *__wrap_calloc(size_t nmemb, size_t size)
     return __real_calloc(nmemb, size);
 }
 
-
-void Wii_VM_Yield(void)
-{
-    static int s_yield_count = 0;
-    if (++s_yield_count < 100) return;
-    s_yield_count = 0;
-
-    PAD_ScanPads();
-    if (PAD_ButtonsDown(0) & PAD_BUTTON_START) {
-        exit(0);
-    }
-}
 
 void __wrap_CL_GenerateQKey(void)
 {

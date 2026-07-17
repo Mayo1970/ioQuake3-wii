@@ -1148,16 +1148,9 @@ static clock_t time_total_vm = 0;
  * vm_powerpc uses large quantities of memory during compilation,
  * Z_Malloc memory may not be enough for some big qvm files
  *
- * Wii: the transients are hundreds of thousands of 24-48 byte nodes
- * (source_instruction_t / dest_instruction_t / symbolic_jump_t). Individual
- * malloc()s pay 8-16 bytes of allocator overhead per node plus heap
- * fragmentation — enough to exhaust the tight sbrk heap on large QVMs
- * (OpenArena's 227k-instruction qagame died ~60% through the compile while
- * Q3's ~130k-instruction one fit). All of them are freed together at the end
- * of PPC_ComputeCode, so serve them from a chunked bump arena instead and
- * free the chunks wholesale: zero per-node overhead, zero fragmentation.
- * PPC_Free on arena nodes is a no-op; the reset at the top of VM_Compile
- * also reclaims the chunks of a compile that aborted through Com_Error.
+ * Wii: hundreds of thousands of tiny node mallocs exhausted the sbrk heap
+ * outright (OA's 227k-instruction qagame died mid-compile). Bump arena
+ * instead - freed wholesale, zero per-node overhead, zero fragmentation.
  */
 
 #define PPC_ARENA_CHUNK ( 512 * 1024 )
@@ -1209,12 +1202,8 @@ PPC_ArenaReset( void )
 	ppc_src_freelist = NULL;
 }
 
-/*
- * source_instruction_t nodes are allocated per bytecode instruction and freed
- * after each function is compiled. Recycle them through a free list so the
- * whole program needs only max-function-size worth of nodes, like the old
- * malloc free list did — without it the arena would hold all ~227k at once.
- */
+/* Recycled through a free list so the arena only ever holds one function's
+ * worth of nodes, not all ~227k of them at once. */
 static void *
 PPC_AllocSrc( size_t size )
 {
