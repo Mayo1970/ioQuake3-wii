@@ -423,7 +423,12 @@ static qboolean CtrlCfgExists(int type)
     if (!cfgname)
         return qfalse;
 
-    len = FS_BaseDir_FOpenFileRead(cfgname, &f);
+    /* Probe with the same search-path resolution "exec" itself uses
+       (FS_ReadFile -> FS_FOpenFileRead), not FS_BaseDir_FOpenFileRead —
+       the latter strips fs_gamedir and can never match where
+       SaveControllerBindings() actually wrote the file. See CLAUDE.md's
+       "Per-controller binding persistence" for the write-side contract. */
+    len = FS_FOpenFileRead(cfgname, &f, qfalse);
     if (len > 0) {
         FS_FCloseFile(f);
         return qtrue;
@@ -1061,6 +1066,14 @@ static void WM_Input_Frame(void)
 
         if (has_nunchuk) {
             WM_NunchukMovement(&data->exp.nunchuk.js);
+        } else if (s_old_axis[0] != 0 || s_old_axis[1] != 0) {
+            /* Nunchuk unplugged mid-deflection: WM_NunchukMovement is the
+               sole emitter of these two axes and stops being called the
+               moment has_nunchuk goes false, so without this the last
+               nonzero SIDE/FORWARD value would stick forever. */
+            Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_SIDE, 0, 0, NULL);
+            Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_FORWARD, 0, 0, NULL);
+            s_old_axis[0] = s_old_axis[1] = 0;
         }
     }
 

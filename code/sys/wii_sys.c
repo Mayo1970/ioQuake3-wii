@@ -137,8 +137,18 @@ char **Sys_ListFiles(const char *directory, const char *extension,
     int            nalloc = 64;
     char         **list;
     char           search[MAX_OSPATH];
+    qboolean       dironly = wantsubs;
+    struct stat    st;
 
     *numfiles = 0;
+
+    if (!extension)
+        extension = "";
+
+    if (extension[0] == '/' && extension[1] == '\0') {
+        extension = "";
+        dironly = qtrue;
+    }
 
     dir = opendir(directory);
     if (!dir)
@@ -150,7 +160,17 @@ char **Sys_ListFiles(const char *directory, const char *extension,
         if (entry->d_name[0] == '.')
             continue;
 
-        if (extension) {
+        snprintf(search, sizeof(search), "%s/%s", directory, entry->d_name);
+        if (stat(search, &st) != 0)
+            continue;
+        if ((dironly && !S_ISDIR(st.st_mode)) ||
+            (!dironly && S_ISDIR(st.st_mode)))
+            continue;
+
+        if (filter) {
+            if (!Com_FilterPath(filter, entry->d_name, qfalse))
+                continue;
+        } else if (extension[0]) {
             size_t nlen = strlen(entry->d_name);
             size_t elen = strlen(extension);
             if (nlen < elen ||
@@ -225,6 +245,12 @@ cpuFeatures_t Sys_GetProcessorFeatures(void)
 void GLimp_Init(qboolean fixedFunction)
 {
     (void)fixedFunction;
+
+    /* GLimp_Shutdown() (Wii_GX_Shutdown) tears down the GX FIFO on every
+       vid_restart; without this the GP write-gather pipe stays wired to
+       freed memory and the next draw call hangs the console. */
+    if (!Wii_GX_Init())
+        Com_Error(ERR_FATAL, "GLimp_Init: Wii_GX_Init failed");
 
     GXRModeObj *rmode = Wii_GX_GetRMode();
 

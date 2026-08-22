@@ -18,6 +18,19 @@ static u8 s_gx_texfmt[GX_MAX_TEXOBJS];
 
 /* 16-bit swizzles: 4x4-texel tiles of 32 bytes; u16 per texel, native big-endian. */
 
+/* Round an 8-bit channel to `bits` bits (nearest, clamped) instead of the
+ * truncating shift GX's 16-bit formats would otherwise get from a plain
+ * >>. Truncation biases every channel dark and, for RGB5A3's 3-bit alpha,
+ * discards up to ~6% of the alpha range on every translucent texel. */
+static inline u32 gx_round_bits(u8 v, int bits)
+{
+    int shift = 8 - bits;
+    int half  = 1 << (shift - 1);
+    int max   = (1 << bits) - 1;
+    int q     = (v + half) >> shift;
+    return (u32)((q > max) ? max : q);
+}
+
 static void gx_swizzle_rgb565(void *dst, const void *src, int w, int h)
 {
     const u8 *s = (const u8 *)src;
@@ -35,9 +48,9 @@ static void gx_swizzle_rgb565(void *dst, const void *src, int w, int h)
                     u16 v = 0;
                     if (sx < w && sy < h) {
                         const u8 *p = s + (sy * w + sx) * 4;
-                        v = (u16)(((p[0] >> 3) << 11) |
-                                  ((p[1] >> 2) << 5)  |
-                                   (p[2] >> 3));
+                        v = (u16)((gx_round_bits(p[0], 5) << 11) |
+                                  (gx_round_bits(p[1], 6) << 5)  |
+                                   gx_round_bits(p[2], 5));
                     }
                     *d++ = v;
                 }
@@ -67,14 +80,14 @@ static void gx_swizzle_rgb5a3(void *dst, const void *src, int w, int h)
                         const u8 *p = s + (sy * w + sx) * 4;
                         if (p[3] >= 224) {
                             v = (u16)(0x8000 |
-                                      ((p[0] >> 3) << 10) |
-                                      ((p[1] >> 3) << 5)  |
-                                       (p[2] >> 3));
+                                      (gx_round_bits(p[0], 5) << 10) |
+                                      (gx_round_bits(p[1], 5) << 5)  |
+                                       gx_round_bits(p[2], 5));
                         } else {
-                            v = (u16)(((p[3] >> 5) << 12) |
-                                      ((p[0] >> 4) << 8)  |
-                                      ((p[1] >> 4) << 4)  |
-                                       (p[2] >> 4));
+                            v = (u16)((gx_round_bits(p[3], 3) << 12) |
+                                      (gx_round_bits(p[0], 4) << 8)  |
+                                      (gx_round_bits(p[1], 4) << 4)  |
+                                       gx_round_bits(p[2], 4));
                         }
                     }
                     *d++ = v;

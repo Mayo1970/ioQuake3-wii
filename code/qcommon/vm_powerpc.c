@@ -1461,12 +1461,18 @@ typedef struct VM_Data {
 	// function pointers, no use to waste registers for them
 	long int (* AsmCall)( int, int );
 	void (* BlockCopy )( unsigned int, unsigned int, size_t );
+	void (* DataAccessViolation )( unsigned int );
 
 	// instruction pointers, rarely used so don't waste register
 	ppc_instruction_t *iPointers;
 
 	// data mask for load and store, not used if optimized
 	unsigned int dataMask;
+
+	// real size of the data allocation (can be smaller than dataMask + 1 -
+	// see vm.c's VM_LoadQVM GEKKO arm); only consulted when
+	// needsDataAllocCheck was true at compile time
+	unsigned int dataAlloc;
 
 	// fixed number used to convert from integer to float
 	unsigned int floatBase; // 0x59800004
@@ -1771,6 +1777,15 @@ PPC_PushData( unsigned int datum )
  * "rotate and mask" instruction
  */
 static long int fastMaskHi = 0, fastMaskLo = 31;
+
+/*
+ * true when this VM's dataAlloc is smaller than dataMask + 1 (see vm.c's
+ * VM_LoadQVM GEKKO arm) - i.e. the load/store bounds check below is not a
+ * no-op for this compile and must actually be emitted. False for every VM
+ * except Team Arena's oversized cgame, so the check compiles to zero extra
+ * instructions everywhere else.
+ */
+static long int needsDataAllocCheck = 0;
 static void
 PPC_MakeFastMask( int mask )
 {
@@ -2532,6 +2547,16 @@ VM_CompileFunction( source_instruction_t * const i_first )
 				in( iLWZ, r0, VM_Data_Offset( dataMask ), rVMDATA );
 				in( iAND, rFIRST, rFIRST, r0 );
 #endif
+				/* CRIT-1: reject offsets in the dataAlloc..dataMask gap (see needsDataAllocCheck) */
+				if ( needsDataAllocCheck ) {
+					in( iLWZ, r0, VM_Data_Offset( dataAlloc ), rVMDATA );
+					in( iCMPLW, cr7, rFIRST, r0 );
+					in( iBC, branchTrue, 4*cr7+lt, +5*4 ); // in range: skip the 4-instruction trap below
+					in( iLL, r0, VM_Data_Offset( DataAccessViolation ), rVMDATA );
+					in( iMTCTR, r0 );
+					in( iMR, r3, rFIRST );
+					in( iBCTRL );
+				}
 				in( iLBZX, rFIRST, rFIRST, rDATABASE );
 				break;
 
@@ -2543,6 +2568,16 @@ VM_CompileFunction( source_instruction_t * const i_first )
 				in( iLWZ, r0, VM_Data_Offset( dataMask ), rVMDATA );
 				in( iAND, rFIRST, rFIRST, r0 );
 #endif
+				/* CRIT-1: reject offsets in the dataAlloc..dataMask gap (see needsDataAllocCheck) */
+				if ( needsDataAllocCheck ) {
+					in( iLWZ, r0, VM_Data_Offset( dataAlloc ), rVMDATA );
+					in( iCMPLW, cr7, rFIRST, r0 );
+					in( iBC, branchTrue, 4*cr7+lt, +5*4 ); // in range: skip the 4-instruction trap below
+					in( iLL, r0, VM_Data_Offset( DataAccessViolation ), rVMDATA );
+					in( iMTCTR, r0 );
+					in( iMR, r3, rFIRST );
+					in( iBCTRL );
+				}
 				in( iLHZX, rFIRST, rFIRST, rDATABASE );
 				break;
 
@@ -2554,6 +2589,16 @@ VM_CompileFunction( source_instruction_t * const i_first )
 				in( iLWZ, r0, VM_Data_Offset( dataMask ), rVMDATA );
 				in( iAND, rFIRST, rFIRST, r0 );
 #endif
+				/* CRIT-1: reject offsets in the dataAlloc..dataMask gap (see needsDataAllocCheck) */
+				if ( needsDataAllocCheck ) {
+					in( iLWZ, r0, VM_Data_Offset( dataAlloc ), rVMDATA );
+					in( iCMPLW, cr7, rFIRST, r0 );
+					in( iBC, branchTrue, 4*cr7+lt, +5*4 ); // in range: skip the 4-instruction trap below
+					in( iLL, r0, VM_Data_Offset( DataAccessViolation ), rVMDATA );
+					in( iMTCTR, r0 );
+					in( iMR, r3, rFIRST );
+					in( iBCTRL );
+				}
 				if ( RET_INT ) {
 					in( iLWZX, rFIRST, rFIRST, rDATABASE );
 				} else {
@@ -2571,6 +2616,16 @@ VM_CompileFunction( source_instruction_t * const i_first )
 				in( iLWZ, r0, VM_Data_Offset( dataMask ), rVMDATA );
 				in( iAND, rSECOND, rSECOND, r0 );
 #endif
+				/* CRIT-1: reject offsets in the dataAlloc..dataMask gap (see needsDataAllocCheck) */
+				if ( needsDataAllocCheck ) {
+					in( iLWZ, r0, VM_Data_Offset( dataAlloc ), rVMDATA );
+					in( iCMPLW, cr7, rSECOND, r0 );
+					in( iBC, branchTrue, 4*cr7+lt, +5*4 ); // in range: skip the 4-instruction trap below
+					in( iLL, r0, VM_Data_Offset( DataAccessViolation ), rVMDATA );
+					in( iMTCTR, r0 );
+					in( iMR, r3, rSECOND );
+					in( iBCTRL );
+				}
 				in( iSTBX, rFIRST, rSECOND, rDATABASE );
 				gpr_pos -= 2;
 				break;
@@ -2583,6 +2638,16 @@ VM_CompileFunction( source_instruction_t * const i_first )
 				in( iLWZ, r0, VM_Data_Offset( dataMask ), rVMDATA );
 				in( iAND, rSECOND, rSECOND, r0 );
 #endif
+				/* CRIT-1: reject offsets in the dataAlloc..dataMask gap (see needsDataAllocCheck) */
+				if ( needsDataAllocCheck ) {
+					in( iLWZ, r0, VM_Data_Offset( dataAlloc ), rVMDATA );
+					in( iCMPLW, cr7, rSECOND, r0 );
+					in( iBC, branchTrue, 4*cr7+lt, +5*4 ); // in range: skip the 4-instruction trap below
+					in( iLL, r0, VM_Data_Offset( DataAccessViolation ), rVMDATA );
+					in( iMTCTR, r0 );
+					in( iMR, r3, rSECOND );
+					in( iBCTRL );
+				}
 				in( iSTHX, rFIRST, rSECOND, rDATABASE );
 				gpr_pos -= 2;
 				break;
@@ -2597,6 +2662,16 @@ VM_CompileFunction( source_instruction_t * const i_first )
 					in( iAND, rSECOND, rSECOND, r0 );
 #endif
 
+					/* CRIT-1: reject offsets in the dataAlloc..dataMask gap (see needsDataAllocCheck) */
+					if ( needsDataAllocCheck ) {
+						in( iLWZ, r0, VM_Data_Offset( dataAlloc ), rVMDATA );
+						in( iCMPLW, cr7, rSECOND, r0 );
+						in( iBC, branchTrue, 4*cr7+lt, +5*4 ); // in range: skip the 4-instruction trap below
+						in( iLL, r0, VM_Data_Offset( DataAccessViolation ), rVMDATA );
+						in( iMTCTR, r0 );
+						in( iMR, r3, rSECOND );
+						in( iBCTRL );
+					}
 					in( iSTWX, rFIRST, rSECOND, rDATABASE );
 					gpr_pos--;
 				} else {
@@ -2607,6 +2682,16 @@ VM_CompileFunction( source_instruction_t * const i_first )
 					in( iAND, rFIRST, rFIRST, r0 );
 #endif
 
+					/* CRIT-1: reject offsets in the dataAlloc..dataMask gap (see needsDataAllocCheck) */
+					if ( needsDataAllocCheck ) {
+						in( iLWZ, r0, VM_Data_Offset( dataAlloc ), rVMDATA );
+						in( iCMPLW, cr7, rFIRST, r0 );
+						in( iBC, branchTrue, 4*cr7+lt, +5*4 ); // in range: skip the 4-instruction trap below
+						in( iLL, r0, VM_Data_Offset( DataAccessViolation ), rVMDATA );
+						in( iMTCTR, r0 );
+						in( iMR, r3, rFIRST );
+						in( iBCTRL );
+					}
 					in( iSTFSX, fFIRST, rFIRST, rDATABASE );
 					fpr_pos--;
 				}
@@ -3071,7 +3156,7 @@ PPC_ComputeCode( vm_t *vm )
 	// prepare Official Procedure Descriptor for the generated code
 	// and retrieve real function pointer for helper functions
 
-	opd_t *ac = (void *)VM_AsmCall, *bc = (void *)VM_BlockCopy;
+	opd_t *ac = (void *)VM_AsmCall, *bc = (void *)VM_BlockCopy, *dv = (void *)VM_DataAccessViolation;
 	data->opd.function = codeBegin;
 	// trick it into using the same TOC
 	// this way we won't have to switch TOC before calling AsmCall or BlockCopy
@@ -3080,12 +3165,15 @@ PPC_ComputeCode( vm_t *vm )
 
 	data->AsmCall = ac->function;
 	data->BlockCopy = bc->function;
+	data->DataAccessViolation = dv->function;
 #else
 	data->AsmCall = VM_AsmCall;
 	data->BlockCopy = VM_BlockCopy;
+	data->DataAccessViolation = VM_DataAccessViolation;
 #endif
 
 	data->dataMask = vm->dataMask;
+	data->dataAlloc = (unsigned int)vm->dataAlloc;
 	data->iPointers = (ppc_instruction_t *)vm->instructionPointers;
 	data->dataLength = VM_Data_Offset( data[ data_acc ] );
 	data->codeLength = ( codeNow - codeBegin ) * sizeof( ppc_instruction_t );
@@ -3159,6 +3247,9 @@ VM_Compile( vm_t *vm, vmHeader_t *header )
 	PPC_ArenaReset();
 
 	PPC_MakeFastMask( vm->dataMask );
+	needsDataAllocCheck = ( (unsigned int)vm->dataAlloc <= (unsigned int)vm->dataMask );
+	wii_diag_sync("VM_Compile: %s dataMask=%d dataAlloc=%d needsDataAllocCheck=%ld\n",
+		vm->name, vm->dataMask, vm->dataAlloc, needsDataAllocCheck);
 
 	i_first = PPC_AllocSrc( sizeof( source_instruction_t ) );
 	i_first->next = NULL;

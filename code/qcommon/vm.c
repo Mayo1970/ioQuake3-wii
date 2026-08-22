@@ -1063,3 +1063,19 @@ void VM_BlockCopy(unsigned int dest, unsigned int src, size_t n)
 
 	Com_Memcpy(currentVM->dataBase + dest, currentVM->dataBase + src, n);
 }
+
+/*
+=================
+VM_DataAccessViolation
+
+Called from JIT-compiled code (GEKKO PPC backend) when a scalar load/store's
+masked offset falls in the gap between dataAlloc and dataMask+1 - i.e. within
+the address-wrap mask but outside the memory actually allocated for this VM's
+data segment. See vm_powerpc.c's needsDataAllocCheck and the OP_LOADn/OP_STOREn sites.
+=================
+*/
+void VM_DataAccessViolation(unsigned int offset)
+{
+	Com_Error(ERR_DROP, "%s: JIT data access violation: offset %u out of range (dataAlloc %d)",
+		currentVM->name, offset, currentVM->dataAlloc);
+}

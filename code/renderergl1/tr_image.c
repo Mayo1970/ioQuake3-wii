@@ -468,8 +468,28 @@ static void R_MipMap (byte *in, int width, int height) {
 	int		i, j;
 	byte	*out;
 	int		row;
+	int		outWidth, outHeight;
 
 	if ( width == 1 && height == 1 ) {
+		return;
+	}
+
+	outWidth = width >> 1;
+	outHeight = height >> 1;
+
+	if ( outWidth == 0 || outHeight == 0 ) {
+		// One axis is already 1 texel: R_MipMap2's weighted filter can't
+		// run (its own halving degenerates to a zero-size copy), so both
+		// filters share this flat two-texel average instead of silently
+		// keeping the corner texel unchanged.
+		out = in;
+		outWidth += outHeight;	// get largest
+		for (i=0 ; i<outWidth ; i++, out+=4, in+=8 ) {
+			out[0] = ( in[0] + in[4] )>>1;
+			out[1] = ( in[1] + in[5] )>>1;
+			out[2] = ( in[2] + in[6] )>>1;
+			out[3] = ( in[3] + in[7] )>>1;
+		}
 		return;
 	}
 
@@ -480,19 +500,8 @@ static void R_MipMap (byte *in, int width, int height) {
 
 	row = width * 4;
 	out = in;
-	width >>= 1;
-	height >>= 1;
-
-	if ( width == 0 || height == 0 ) {
-		width += height;	// get largest
-		for (i=0 ; i<width ; i++, out+=4, in+=8 ) {
-			out[0] = ( in[0] + in[4] )>>1;
-			out[1] = ( in[1] + in[5] )>>1;
-			out[2] = ( in[2] + in[6] )>>1;
-			out[3] = ( in[3] + in[7] )>>1;
-		}
-		return;
-	}
+	width = outWidth;
+	height = outHeight;
 
 	for (i=0 ; i<height ; i++, in+=row) {
 		for (j=0 ; j<width ; j++, out+=4, in+=8) {

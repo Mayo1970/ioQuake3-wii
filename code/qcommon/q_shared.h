@@ -76,7 +76,16 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
   #define CINEMATICS_INTRO		"intro.RoQ"
   #define LEGACY_PROTOCOL
   #define PROTOCOL_HANDLER		"quake3"
-  #define CONFIG_PREFIX			"q3config"
+  // CLASSIC shares baseq3/ with stock Q3A but must NOT share its saved cvar
+  // config: sv_master1/2 (and everything else CLASSIC-specific) differ, and a
+  // config written by one flavor is exec'd verbatim by the other on next boot
+  // (same homepath). Separate prefix isolates them, same pattern STANDALONEOA
+  // already uses for "oaconfig".
+  #ifdef CLASSIC
+    #define CONFIG_PREFIX		"classicconfig"
+  #else
+    #define CONFIG_PREFIX		"q3config"
+  #endif
 #endif
 
 // Heartbeat for dpmaster protocol. You shouldn't change this unless you know what you're doing

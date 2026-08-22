@@ -4,6 +4,8 @@ void *__ppc_main_sp __attribute__((section(".sdata"))) = &s_mainStack[sizeof(s_m
 #include <gccore.h>
 #include <wiiuse/wpad.h>
 #include <fat.h>
+#include <sdcard/wiisd_io.h>
+#include <ogc/usbstorage.h>
 #include <asndlib.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,7 +42,14 @@ static void Wii_InitConsole(void)
 {
     VIDEO_Init();
     rmode = VIDEO_GetPreferredMode(NULL);
-    xfb   = MEM_K0_TO_K1(SYS_AllocateFramebuffer(rmode));
+    void *fb = SYS_AllocateFramebuffer(rmode);
+    if (!fb) {
+        /* No console yet to print to - report over Dolphin log/USB Gecko and halt safely
+           rather than feed MEM_K0_TO_K1(NULL) into VIDEO_Configure. */
+        SYS_Report("[wii] FATAL: could not allocate framebuffer\n");
+        while (1) VIDEO_WaitVSync();
+    }
+    xfb = MEM_K0_TO_K1(fb);
     console_init(xfb, 20, 20, rmode->fbWidth, rmode->xfbHeight,
                  rmode->fbWidth * VI_DISPLAY_PIX_SZ);
     VIDEO_Configure(rmode);
@@ -50,20 +59,6 @@ static void Wii_InitConsole(void)
     VIDEO_WaitVSync();
     if (rmode->viTVMode & VI_NON_INTERLACE)
         VIDEO_WaitVSync();
-}
-
-static qboolean Wii_FindDataRoot(void)
-{
-    /* Try sd: first, then usb: (Wii Mini). chdir() both probes and sets the cwd. */
-    static const char *roots[] = { "sd:/quake3", "usb:/quake3" };
-    int i;
-    for (i = 0; i < (int)(sizeof(roots) / sizeof(roots[0])); i++) {
-        if (chdir(roots[i]) == 0) {
-            Q_strncpyz(wii_dev_root, roots[i], sizeof(wii_dev_root));
-            return qtrue;
-        }
-    }
-    return qfalse;
 }
 
 /* 16 pages (512 KB) FAT cache for Q3A release only; 4 pages (128 KB)
@@ -80,9 +75,31 @@ static qboolean Wii_MountSD(void)
 {
     int attempt;
 
-    /* Retry FAT init: USB enumerates slower than SD, normal Wii mounts first try. */
+    /* SD is directly memory-mapped hardware - no enumeration delay - so one
+       attempt is enough; on a Wii Mini (no SD slot) this just fails fast. */
+    if (dvmProbeMountDiscIface("sd", &__io_wiisd, WII_FAT_CACHE_PAGES, WII_FAT_SECTORS_PER_PAGE)) {
+        for (attempt = 0; attempt < 10; attempt++) {
+            if (chdir("sd:/quake3") == 0) {
+                Q_strncpyz(wii_dev_root, "sd:/quake3", sizeof(wii_dev_root));
+#ifdef WII_DEBUG
+                printf("[wii] data root: %s\n", wii_dev_root);
+#endif
+                return qtrue;
+            }
+            usleep(100000); /* 100 ms */
+        }
+        /* SD mounted but has no /quake3 - fall through and try USB. */
+    }
+
+    /* Only pay for USB's FAT cache when SD didn't already give us a data
+       root. dvm gives every mounted device its own cache; mounting USB
+       unconditionally (as a plain dvmInit() call does) meant a USB drive
+       plugged in for unrelated reasons cost extra sbrk memory even when the
+       SD card already had the game data - on a hardware-tight port that was
+       enough to starve the JIT's malloc ("vm_powerpc compiler error: Not
+       enough memory"). */
     for (attempt = 0; attempt < 20; attempt++) {
-        if (dvmInit(true, WII_FAT_CACHE_PAGES, WII_FAT_SECTORS_PER_PAGE))
+        if (dvmProbeMountDiscIface("usb", &__io_usbstorage, WII_FAT_CACHE_PAGES, WII_FAT_SECTORS_PER_PAGE))
             break;
         usleep(150000); /* 150 ms - let USB enumerate */
     }
@@ -92,7 +109,8 @@ static qboolean Wii_MountSD(void)
     }
 
     for (attempt = 0; attempt < 10; attempt++) {
-        if (Wii_FindDataRoot()) {
+        if (chdir("usb:/quake3") == 0) {
+            Q_strncpyz(wii_dev_root, "usb:/quake3", sizeof(wii_dev_root));
 #ifdef WII_DEBUG
             printf("[wii] data root: %s\n", wii_dev_root);
 #endif
@@ -192,6 +210,7 @@ static int Wii_ScanModDirs(char names[][MAX_QPATH], int maxNames)
 
         if (de->d_name[0] == '.') continue;
         if (Q_stricmp(de->d_name, "baseq3") == 0) continue;
+        if (Q_stricmp(de->d_name, "baseoa") == 0) continue;
 
         snprintf(full, sizeof(full), "%s/%s", wii_dev_root, de->d_name);
         if (stat(full, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
@@ -510,7 +529,10 @@ int main(int argc, char *argv[])
     WII_DBG_PRINTF("[wii] Calling Wii_GX_Init...\n");
 
     /* GX must be up before Com_Init — renderer starts immediately. */
-    Wii_GX_Init();
+    if (!Wii_GX_Init()) {
+        printf("FATAL: GX init failed. Halting.\n");
+        while (1) VIDEO_WaitVSync();
+    }
     WII_DBG_PRINTF("[wii] GX init done\n");
     boot_mark("GX init done");
 

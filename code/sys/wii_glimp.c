@@ -95,15 +95,28 @@ qboolean Wii_GX_Init(void)
     if (s_initialised)
         return qtrue;
 
-    VIDEO_Init();
-    switch (wii_video_mode_choice) {
-        case 1:  s_rmode = &TVNtsc240Ds; break;
-        case 2:  s_rmode = &TVPal264Ds;  break;
-        default: s_rmode = VIDEO_GetPreferredMode(NULL); break;
-    }
+    /* Video mode is a boot-time-only choice on this port (never changes
+       mid-session) - on a vid_restart-triggered re-init, reuse the
+       existing framebuffers instead of leaking two new ~1.2MB XFBs on
+       top of the never-freed old ones (Wii_GX_Shutdown frees the GX FIFO
+       but deliberately does not free s_framebuf). */
+    if (!s_framebuf[0]) {
+        VIDEO_Init();
+        switch (wii_video_mode_choice) {
+            case 1:  s_rmode = &TVNtsc240Ds; break;
+            case 2:  s_rmode = &TVPal264Ds;  break;
+            default: s_rmode = VIDEO_GetPreferredMode(NULL); break;
+        }
 
-    s_framebuf[0] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(s_rmode));
-    s_framebuf[1] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(s_rmode));
+        void *fb0 = SYS_AllocateFramebuffer(s_rmode);
+        void *fb1 = SYS_AllocateFramebuffer(s_rmode);
+        if (!fb0 || !fb1) {
+            printf("[glimp] FATAL: could not allocate framebuffer\n");
+            return qfalse;
+        }
+        s_framebuf[0] = MEM_K0_TO_K1(fb0);
+        s_framebuf[1] = MEM_K0_TO_K1(fb1);
+    }
 
     VIDEO_Configure(s_rmode);
     VIDEO_SetNextFramebuffer(s_framebuf[0]);
