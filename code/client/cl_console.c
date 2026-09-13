@@ -778,8 +778,20 @@ void Con_DrawConsole( void ) {
 	// if disconnected, render console full screen
 	if ( clc.state == CA_DISCONNECTED ) {
 		if ( !( Key_GetCatcher( ) & (KEYCATCH_UI | KEYCATCH_CGAME)) ) {
+#if defined(GEKKO) && !defined(WII_DEBUG)
+			// Release Wii builds never auto-force the full-screen log: map loads
+			// leave the client CA_DISCONNECTED with no UI for seconds at a time
+			// (JIT recompiles ui/cgame/qagame), and boot/vid_restart do the same.
+			// Fall through so the manual pull-down (~) still animates in via
+			// con.displayFrac. Debug builds keep the auto log - it is an
+			// on-hardware diagnostic.
+			if ( !( Key_GetCatcher( ) & KEYCATCH_CONSOLE ) && con.displayFrac == 0 ) {
+				return;
+			}
+#else
 			Con_DrawSolidConsole( 1.0 );
 			return;
+#endif
 		}
 	}
 

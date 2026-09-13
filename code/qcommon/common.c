@@ -1378,6 +1378,43 @@ void Com_Meminfo_f( void ) {
 	Com_Printf( "        %8i bytes in small Zone memory\n", smallZoneBytes );
 }
 
+#if defined(GEKKO) && defined(WII_DEBUG)
+#include <malloc.h>
+/*
+=================
+Com_MemoryWatermarkLog
+
+One-line memory snapshot to diag.txt for the Wii budget work. Call it once
+per map, right after re.EndRegistration(), when hunk + resident JIT code are
+at their post-load peak. Only mallinfo().fordblks is trustworthy on this
+newlib target - arena/uordblks read back implausibly large.
+=================
+*/
+void Com_MemoryWatermarkLog( const char *tag ) {
+	memblock_t	*block;
+	int			zoneUsed = 0;
+	int			hunkPeak;
+	struct mallinfo mi;
+
+	for ( block = mainzone->blocklist.next ; ; block = block->next ) {
+		if ( block->tag ) {
+			zoneUsed += block->size;
+		}
+		if ( block->next == &mainzone->blocklist ) {
+			break;
+		}
+	}
+
+	hunkPeak = ( hunk_low.permanent  > hunk_low.tempHighwater  ? hunk_low.permanent  : hunk_low.tempHighwater )
+	         + ( hunk_high.permanent > hunk_high.tempHighwater ? hunk_high.permanent : hunk_high.tempHighwater );
+
+	mi = mallinfo();
+
+	wii_diag_sync( "[memwatermark] %s hunkPeak=%d hunkRemaining=%d hunkTotal=%d zoneUsed=%d zoneTotal=%d fordblks=%d\n",
+		tag ? tag : "?", hunkPeak, Hunk_MemoryRemaining(), s_hunkTotal, zoneUsed, s_zoneTotal, (int)mi.fordblks );
+}
+#endif
+
 /*
 ===============
 Com_TouchMemory

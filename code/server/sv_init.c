@@ -690,6 +690,10 @@ void SV_Init (void)
 #ifdef CLASSIC
 	sv_master[0] = Cvar_Get("sv_master1", "dc.dreamcast-talk.com", 0);
 	sv_master[1] = Cvar_Get("sv_master2", "", 0);
+#elif defined(STANDALONEOA)
+	// Match stock OpenArena: single dpmaster, no Q3 directory.
+	sv_master[0] = Cvar_Get("sv_master1", MASTER_SERVER_NAME, 0);
+	sv_master[1] = Cvar_Get("sv_master2", "", 0);
 #else
 	sv_master[0] = Cvar_Get("sv_master1", MASTER_SERVER_NAME, 0);
 	sv_master[1] = Cvar_Get("sv_master2", "directory.ioquake3.org", 0);

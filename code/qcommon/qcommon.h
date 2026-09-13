@@ -992,6 +992,10 @@ void Hunk_Log( void);
 
 void Com_TouchMemory( void );
 
+#if defined(GEKKO) && defined(WII_DEBUG)
+void Com_MemoryWatermarkLog( const char *tag );
+#endif
+
 // commandLine should not include the executable name (argv[0])
 void Com_Init( char *commandLine );
 void Com_Frame( void );

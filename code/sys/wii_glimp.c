@@ -108,13 +108,27 @@ qboolean Wii_GX_Init(void)
             default: s_rmode = VIDEO_GetPreferredMode(NULL); break;
         }
 
-        void *fb0 = SYS_AllocateFramebuffer(s_rmode);
+        /* In the default video mode the boot console's XFB was allocated for
+           this exact rmode and is now dead - reuse it as buffer 0 instead of
+           allocating a third ~1 MB XFB that never gets freed. The 240p/264p
+           Ds modes render at a different size, so they still allocate both. */
+        void *consoleFb = (wii_video_mode_choice == 0) ? Wii_Console_GetFramebuffer() : NULL;
+        if (consoleFb) {
+            s_framebuf[0] = consoleFb; /* already MEM_K0_TO_K1-mapped */
+        } else {
+            void *fb0 = SYS_AllocateFramebuffer(s_rmode);
+            if (!fb0) {
+                printf("[glimp] FATAL: could not allocate framebuffer\n");
+                return qfalse;
+            }
+            s_framebuf[0] = MEM_K0_TO_K1(fb0);
+        }
+
         void *fb1 = SYS_AllocateFramebuffer(s_rmode);
-        if (!fb0 || !fb1) {
+        if (!fb1) {
             printf("[glimp] FATAL: could not allocate framebuffer\n");
             return qfalse;
         }
-        s_framebuf[0] = MEM_K0_TO_K1(fb0);
         s_framebuf[1] = MEM_K0_TO_K1(fb1);
     }
 

@@ -84,6 +84,15 @@ WII_FSGAME ?=
 # vm_*=2. Escape hatch: make WII_VM_NATIVE=0 dol builds the bytecode
 # interpreter (needs more hunk — big maps like q3dm11 may OOM there).
 WII_VM_NATIVE ?= 1
+# Open Arena and Team Arena: force the interpreter. Their larger QVMs make the
+# JIT's simultaneous multi-VM code-buffer residency too heavy to load maps on
+# real hardware. Removing ~2.3 MB of resident JIT code frees the MEM2 bump.
+ifeq ($(_OA),1)
+  override WII_VM_NATIVE := 0
+endif
+ifeq ($(_TA),1)
+  override WII_VM_NATIVE := 0
+endif
 # In-game framerate cap, DEFAULT 60 since 2026-06-11. Set 30 if 60 proves
 # unstable on a target machine: make WII_MAXFPS=30 dol. (Menus/loading always
 # run at 60 regardless — see CL_InMenu in common.c.) NOTE: com_maxfps is
@@ -113,7 +122,7 @@ ifeq ($(_TA),1)
   DOL_NOTE       := TA data: sd:/quake3/baseq3/pak*.pk3 + sd:/quake3/missionpack/pak*.pk3
 else ifeq ($(_OA),1)
   BUILD          := build_oa
-  GAMEMODE_FLAGS := -DSTANDALONEOA -DWII_BASEGAME=\"baseoa\"
+  GAMEMODE_FLAGS := -DSTANDALONEOA -DWII_BASEGAME=\"baseoa\" -DMASTER_SERVER_NAME=\"dpmaster.deathmask.net\"
   DOL_DEST       := /apps/openarena/boot.dol
   DOL_NOTE       := OA data: sd:/quake3/baseoa/pak*.pk3
 else ifeq ($(_CLASSIC),1)
@@ -371,6 +380,7 @@ ZCONF_H_COPY := code/qcommon/zconf.h
 CFLAGS  = $(MACHDEP) \
           -pipe -O2 -Wall -Wno-unused-variable -Wno-missing-braces -Wno-cpp \
           -MMD -MP \
+          -fno-asynchronous-unwind-tables -fno-unwind-tables \
           $(WII_DEBUG_FLAG) \
           $(GAMEMODE_FLAGS) \
           $(WII_INPUT_FLAGS) \

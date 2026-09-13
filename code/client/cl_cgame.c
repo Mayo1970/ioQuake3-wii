@@ -791,6 +791,10 @@ void CL_InitCGame( void ) {
 	// on the card even if the driver does deferred loading
 	re.EndRegistration();
 
+#if defined(GEKKO) && defined(WII_DEBUG)
+	Com_MemoryWatermarkLog( cl.mapname );
+#endif
+
 	// make sure everything is paged in
 	if (!Sys_LowPhysicalMemory()) {
 		Com_TouchMemory();

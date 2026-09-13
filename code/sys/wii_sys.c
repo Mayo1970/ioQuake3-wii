@@ -582,40 +582,87 @@ static inline int is_mem2_ptr(void *p)
     return mem2_base != NULL && (u8 *)p >= mem2_base;
 }
 
-/* JIT code buffers recycled via table (sbrk too tight at map load). */
-#define WII_VMCODE_SLOTS 8
+/* JIT code buffers live in the MEM2 bump tail (sbrk is too tight at map load
+   to carry them). The bump itself cannot free, so freed buffers are tracked
+   in this table and reused. Every table slot is bump-backed, and because the
+   bump only ever grows, the slots are contiguous in memory - so a freed slot
+   coalesces with its freed neighbours (recovering a big buffer from several
+   small ones) and an oversized reused slot is split (returning the tail as a
+   free slot). Without split+merge the fixed slots fragmented the <1 MB tail
+   and forced memalign/sbrk fallbacks across map/mod changes. memalign
+   fallback blocks are never entered into the table. */
+#define WII_VMCODE_SLOTS  16
+#define WII_VMCODE_SPLIT  8192   /* keep a split tail only if it is this big */
 static struct {
     u8  *ptr;
     u32  size;
     int  used;
 } s_vmcode[WII_VMCODE_SLOTS];
 
+/* Merge a just-freed bump slot with any contiguous free slots on either side. */
+static void wii_vmcode_coalesce(int idx)
+{
+    int merged = 1;
+    while (merged) {
+        int j;
+        merged = 0;
+        for (j = 0; j < WII_VMCODE_SLOTS; j++) {
+            if (j == idx || !s_vmcode[j].ptr || s_vmcode[j].used)
+                continue;
+            if (s_vmcode[j].ptr == s_vmcode[idx].ptr + s_vmcode[idx].size) {
+                s_vmcode[idx].size += s_vmcode[j].size;   /* right neighbour */
+            } else if (s_vmcode[j].ptr + s_vmcode[j].size == s_vmcode[idx].ptr) {
+                s_vmcode[idx].ptr   = s_vmcode[j].ptr;     /* left neighbour  */
+                s_vmcode[idx].size += s_vmcode[j].size;
+            } else {
+                continue;
+            }
+            s_vmcode[j].ptr = NULL;
+            s_vmcode[j].size = 0;
+            merged = 1;
+        }
+    }
+}
+
 void *mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset)
 {
     (void)addr; (void)prot; (void)flags; (void)fd; (void)offset;
+    size_t need = (len + 31) & ~((size_t)31);
     int i;
 
-    /* Best-fit recycle to avoid slot starvation. */
+    /* Best-fit among free tracked slots. */
     int best = -1;
     for (i = 0; i < WII_VMCODE_SLOTS; i++) {
-        if (s_vmcode[i].ptr && !s_vmcode[i].used && s_vmcode[i].size >= len &&
+        if (s_vmcode[i].ptr && !s_vmcode[i].used && s_vmcode[i].size >= need &&
             (best < 0 || s_vmcode[i].size < s_vmcode[best].size))
             best = i;
     }
     if (best >= 0) {
+        u32 slack = s_vmcode[best].size - (u32)need;
+        if (slack >= WII_VMCODE_SPLIT) {
+            for (i = 0; i < WII_VMCODE_SLOTS; i++) {
+                if (!s_vmcode[i].ptr) {
+                    s_vmcode[i].ptr  = s_vmcode[best].ptr + need;
+                    s_vmcode[i].size = slack;
+                    s_vmcode[i].used = 0;
+                    s_vmcode[best].size = (u32)need;
+                    break;
+                }
+            }
+        }
         s_vmcode[best].used = 1;
-        wii_diag_sync("mmap: len=%u recycled slot %d (size=%u) -> %p\n",
+        wii_diag_sync("mmap: len=%u reused slot %d (size=%u) -> %p\n",
             (unsigned)len, best, s_vmcode[best].size, (void *)s_vmcode[best].ptr);
         return s_vmcode[best].ptr;
     }
 
     for (i = 0; i < WII_VMCODE_SLOTS; i++) {
         if (!s_vmcode[i].ptr) {
-            void *p = wii_mem2_alloc(len);
+            void *p = wii_mem2_alloc(need);
             if (!p)
                 break;
             s_vmcode[i].ptr  = p;
-            s_vmcode[i].size = (u32)len;
+            s_vmcode[i].size = (u32)need;
             s_vmcode[i].used = 1;
             wii_diag_sync("mmap: len=%u bump slot %d -> %p\n", (unsigned)len, i, p);
             return p;
@@ -641,6 +688,7 @@ int munmap(void *addr, size_t len)
     for (i = 0; i < WII_VMCODE_SLOTS; i++) {
         if (s_vmcode[i].ptr == addr) {
             s_vmcode[i].used = 0;
+            wii_vmcode_coalesce(i);
             return 0;
         }
     }

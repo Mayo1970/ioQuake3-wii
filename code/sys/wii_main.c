@@ -4,6 +4,7 @@ void *__ppc_main_sp __attribute__((section(".sdata"))) = &s_mainStack[sizeof(s_m
 #include <gccore.h>
 #include <wiiuse/wpad.h>
 #include <fat.h>
+#include <dvm.h>
 #include <sdcard/wiisd_io.h>
 #include <ogc/usbstorage.h>
 #include <asndlib.h>
@@ -34,6 +35,8 @@ extern refexport_t *GetRefAPI(int apiVersion, refimport_t *rimp);
 
 static void *xfb = NULL;
 static GXRModeObj *rmode = NULL;
+
+void *Wii_Console_GetFramebuffer(void) { return xfb; }
 
 /* Storage device root: "sd:/quake3" on a normal Wii, "usb:/quake3" on Wii Mini. Detected in Wii_MountSD(). */
 char wii_dev_root[32] = "sd:/quake3";
@@ -88,7 +91,11 @@ static qboolean Wii_MountSD(void)
             }
             usleep(100000); /* 100 ms */
         }
-        /* SD mounted but has no /quake3 - fall through and try USB. */
+        /* SD mounted but has no /quake3 - drop its FAT cache before trying
+           USB. dvm gives every mounted disc its own cache; leaving a useless
+           SD mount alive alongside USB pays for two caches on a port where
+           that extra sbrk can starve the JIT. */
+        dvmUnmountVolume("sd");
     }
 
     /* Only pay for USB's FAT cache when SD didn't already give us a data
@@ -320,16 +327,18 @@ static void Wii_ExtractBundledZpackClassic(void)
         long fsz = (fseek(ef, 0, SEEK_END) == 0) ? ftell(ef) : -1;
         if (fsz == (long)zpack_classic_data_len) {
             rewind(ef);
-            unsigned char *buf = malloc(zpack_classic_data_len);
-            if (buf) {
-                size_t n = fread(buf, 1, zpack_classic_data_len, ef);
-                qboolean match = (n == zpack_classic_data_len &&
-                    crc32(crc32(0L, Z_NULL, 0), buf, (uInt)n) == zpack_classic_data_crc);
-                free(buf);
-                if (match) {
-                    fclose(ef);
-                    return;
-                }
+            /* Stream the CRC in 32 KB chunks - no need to hold the whole
+               ~420 KB pak in memory just to hash it. */
+            static unsigned char chunk[32 * 1024];
+            uLong crc = crc32(0L, Z_NULL, 0);
+            size_t total = 0, n;
+            while ((n = fread(chunk, 1, sizeof(chunk), ef)) > 0) {
+                crc = crc32(crc, chunk, (uInt)n);
+                total += n;
+            }
+            if (total == zpack_classic_data_len && crc == zpack_classic_data_crc) {
+                fclose(ef);
+                return;
             }
         }
         fclose(ef);
@@ -437,7 +446,15 @@ int main(int argc, char *argv[])
     WII_DBG_PRINTF("[wii] Audio OK\n");
     boot_mark("Audio init done");
 
+    /* The -1 MB margin is JIT bump/mmap headroom. TA in interpreter mode has no
+       JIT competing for the bump, so reclaim it - closes the ~192 KB map-load
+       gap (see CLAUDE.md "TA memory-starved"). MB truncation in Wii_MEM2_Init
+       still leaves 0-1 MB of real slack on top. */
+#if defined(STANDALONETA) && !defined(WII_VM_NATIVE)
+    u32 hunk_mb = mem2_bump_mb;
+#else
     u32 hunk_mb = (mem2_bump_mb > 1) ? mem2_bump_mb - 1 : mem2_bump_mb;
+#endif
 
     static char cmdline[1024];
     snprintf(cmdline, sizeof(cmdline),
