@@ -233,8 +233,10 @@ void Sys_Error(const char *error, ...)
 
 void Sys_Print(const char *msg)
 {
+#ifdef WII_DEBUG
     fputs(msg, stdout);
     fflush(stdout);
+#endif
 }
 
 cpuFeatures_t Sys_GetProcessorFeatures(void)

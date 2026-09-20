@@ -469,7 +469,7 @@ int main(int argc, char *argv[])
         wii_dev_root, wii_dev_root, (unsigned)hunk_mb);
     snprintf(cmdline + strlen(cmdline), sizeof(cmdline) - strlen(cmdline),
         "+set r_mode -1 "
-        "+set r_picmip 2 "
+        "+set r_picmip 1 "
         /* Keep the "r_dynamic" typo - the real cvar hard-crashes release
            builds (debug boots fine, unhelpfully). See CLAUDE.md before touching this. */
         "+set r_dynamic 0 "
