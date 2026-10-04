@@ -59,9 +59,8 @@ static const btn_map_t s_gc_buttons[] = {
 #define K_JOY_LTRIG  K_JOY11
 #define K_JOY_RTRIG  K_JOY12
 
-/* Analog triggers folded into the menu-path button mask as synthetic bits so
-   the raw bind-capture layer treats them like any other button (PAD_BUTTON_*
-   occupy the low u16; these don't collide). */
+/* Analog triggers as synthetic bits in the menu button mask, so the raw bind-capture
+   layer treats them like buttons (PAD_BUTTON_* use the low u16, so no collision). */
 #define GC_SYNTH_LTRIG  0x40000000u
 #define GC_SYNTH_RTRIG  0x80000000u
 
@@ -215,16 +214,8 @@ static qboolean       s_drc_plus_prev  = qfalse;
 static qboolean       s_usb_start_prev = qfalse;
 static int            s_active_ctrl_type = -1;
 
-/* Raw bind-capture layer (menus only). The menu maps deliberately hide the
- * K_JOYn codes from the UI so A/B/D-pad can navigate — which also made every
- * pad button impossible to bind from the retail Controls menu (its grabber
- * binds any keynum it receives, but never saw a JOY code). Holding a
- * per-controller modifier (Minus; GC: Z, USB: Back/Share) while a menu is open
- * switches emission to the in-game map so the grabber captures real JOY codes;
- * tapping the modifier alone emits its own JOY code on release so the modifier
- * itself stays bindable. All modifier codes sit outside K_JOY1–K_JOY4 (the
- * codes retail menus treat as ENTER), so a stray tap in normal navigation is
- * inert. See MenuRawLayer(). */
+/* Raw bind-capture layer (menus only, see CLAUDE.md): holding the modifier emits in-game JOY
+ * codes so the Controls menu can bind pad buttons. Modifier codes avoid ENTER-like K_JOY1-4. */
 static qboolean       s_menu_raw      = qfalse; /* modifier held in a menu */
 static qboolean       s_menu_mod_used = qfalse; /* other button seen during hold */
 static u32            s_menu_suppress = 0;      /* held-over bits: no menu key
@@ -269,21 +260,15 @@ static void ReleaseAllKeys(void)
     Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_YAW,     0, 0, NULL);
     Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_PITCH,   0, 0, NULL);
     s_old_axis[0] = s_old_axis[1] = s_old_axis[2] = s_old_axis[3] = 0;
-    /* Any state wipe (menu open/close, hotswap) also exits the raw
-       bind-capture layer cleanly: no pending tap, no stale suppression.
-       MenuRawLayer() re-establishes its state after calling this. */
+    /* Every state wipe (menu open/close, hotswap) also exits the raw bind-capture layer;
+       MenuRawLayer() rebuilds its state after calling this. */
     s_menu_raw      = qfalse;
     s_menu_mod_used = qtrue;
     s_menu_suppress = 0;
 }
 
-/* Raw bind-capture layer — call at the top of a menu branch (never in-game).
-   Returns qtrue while the modifier is held: the in-game JOY codes (minus the
-   modifier's own) have been emitted and the caller must skip ALL menu-key
-   emission this frame. Returns qfalse otherwise, with *held stripped of
-   buttons still physically down since the raw layer exited — they must not
-   re-assert their menu keys (K_ENTER re-activating the bind row was a real
-   failure mode) until released. */
+/* Call at the top of a menu branch. qtrue = modifier held, JOY codes sent: skip all menu keys.
+   qfalse strips *held of buttons still down from the raw layer (else K_ENTER re-binds the row). */
 static qboolean MenuRawLayer(const btn_map_t *map, int count, u32 *held,
                              u32 mod_bit, int mod_key)
 {
@@ -388,10 +373,8 @@ static void SaveControllerBindings(int type)
         return;
     }
 
-    /* Canonical "JOYn" names, same as Key_WriteBindings — the friendly labels
-       ("A", "ZR", "D-Up") don't round-trip through Key_StringToKeynum, so a
-       cfg written with them loses every multi-char bind on exec (and binds
-       keyboard letters for the single-char ones). */
+    /* Canonical "JOYn" names like Key_WriteBindings: friendly labels ("A", "ZR") don't
+       round-trip through Key_StringToKeynum and corrupt the binds on the next exec. */
     wii_keynumstr_raw = 1;
     for (k = CTRL_KEY_FIRST; k <= CTRL_KEY_LAST; k++) {
         char *bind = Key_GetBinding(k);
@@ -423,11 +406,8 @@ static qboolean CtrlCfgExists(int type)
     if (!cfgname)
         return qfalse;
 
-    /* Probe with the same search-path resolution "exec" itself uses
-       (FS_ReadFile -> FS_FOpenFileRead), not FS_BaseDir_FOpenFileRead —
-       the latter strips fs_gamedir and can never match where
-       SaveControllerBindings() actually wrote the file. See CLAUDE.md's
-       "Per-controller binding persistence" for the write-side contract. */
+    /* Probe the way "exec" resolves paths (FS_FOpenFileRead). FS_BaseDir_FOpenFileRead strips
+       fs_gamedir, so it never finds the file SaveControllerBindings() wrote. */
     len = FS_FOpenFileRead(cfgname, &f, qfalse);
     if (len > 0) {
         FS_FCloseFile(f);
@@ -607,9 +587,8 @@ static void GC_Input_Frame(void)
             InjectKey(s_gc_buttons[i].q3key,
                       (held & s_gc_buttons[i].bit) ? qtrue : qfalse);
 
-        /* Through InjectKey like every other button so key_held[] tracks the
-           triggers: ReleaseAllKeys can release them (menu open, hotswap) and
-           a still-held trigger re-asserts the frame after. */
+        /* Through InjectKey so key_held[] tracks triggers: ReleaseAllKeys can release them,
+           and a still-held trigger re-asserts the next frame. */
         InjectKey(K_JOY_LTRIG, l_ana > TRIGGER_THRESHOLD ? qtrue : qfalse);
         InjectKey(K_JOY_RTRIG, r_ana > TRIGGER_THRESHOLD ? qtrue : qfalse);
 
@@ -1067,10 +1046,8 @@ static void WM_Input_Frame(void)
         if (has_nunchuk) {
             WM_NunchukMovement(&data->exp.nunchuk.js);
         } else if (s_old_axis[0] != 0 || s_old_axis[1] != 0) {
-            /* Nunchuk unplugged mid-deflection: WM_NunchukMovement is the
-               sole emitter of these two axes and stops being called the
-               moment has_nunchuk goes false, so without this the last
-               nonzero SIDE/FORWARD value would stick forever. */
+            /* Nunchuk unplugged mid-deflection: WM_NunchukMovement (sole emitter of these axes)
+               stops running, so zero them here or the last SIDE/FORWARD value sticks. */
             Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_SIDE, 0, 0, NULL);
             Com_QueueEvent(0, SE_JOYSTICK_AXIS, AXIS_FORWARD, 0, 0, NULL);
             s_old_axis[0] = s_old_axis[1] = 0;
@@ -1489,9 +1466,6 @@ void Wii_Input_SetCvars(void)
     Cvar_Set("j_pitch",   "0.002");
     Cvar_Set("j_yaw",     "-0.002");
 
-    /* Disable blob shadows (refit flicker on non-flat floors); user cfg can override. */
-    Cvar_Get("cg_shadows", "0", CVAR_ARCHIVE);
-
 #if WPAD_ENABLED
     /* Wiimote IR cvars, tuned for once-per-frame polling. User cfg overrides. */
     ir_deadzone    = Cvar_Get("wii_ir_deadzone",    "40",   CVAR_ARCHIVE);
@@ -1501,8 +1475,12 @@ void Wii_Input_SetCvars(void)
     ir_pitchRange  = Cvar_Get("wii_ir_pitchrange",  "30",   CVAR_ARCHIVE);
 #endif
 
-    /* Set VM mode: 1=interpreter, 2=JIT. vm_ui set in cmdline (CL_InitUI runs early). */
-#if defined(WII_VM_NATIVE)
+    /* VM mode: 0=TA linked-in modules, 1=interpreter, 2=JIT. vm_ui also set in cmdline (CL_InitUI runs early). */
+#if defined(WII_NATIVE_TA)
+    Cvar_Set("vm_ui",    "0");
+    Cvar_Set("vm_cgame", "0");
+    Cvar_Set("vm_game",  "0");
+#elif defined(WII_VM_NATIVE)
     Cvar_Set("vm_ui",    "2");
     Cvar_Set("vm_cgame", "2");
     Cvar_Set("vm_game",  "2");

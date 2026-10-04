@@ -1480,6 +1480,47 @@ int FS_FindVM(void **startSearch, char *found, int foundlen, const char *name, i
 	return -1;
 }
 
+#ifdef WII_NATIVE_TA
+// missionpack/pak0-pak3; missionpak_checksums is compiled out under STANDALONE.
+static const unsigned int wii_missionpak_checksums[] =
+{
+	2430342401u,
+	511014160u,
+	2662638993u,
+	1438664554u
+};
+
+/* Pure servers check the cgame/ui pak refs. A stock QVM pak gets them without a load,
+   so the linked-in module can run in its place; any other QVM returns qfalse. */
+qboolean FS_WiiStockVM(const char *name)
+{
+	searchpath_t *search;
+	char qvmName[MAX_QPATH];
+	int i;
+
+	Com_sprintf(qvmName, sizeof(qvmName), "vm/%s.qvm", name);
+
+	for(search = fs_searchpaths; search; search = search->next)
+	{
+		if(!search->pack || !FS_PakIsPure(search->pack) ||
+		   FS_FOpenFileReadDir(qvmName, search, NULL, qfalse, qfalse) <= 0)
+			continue;
+
+		for(i = 0; i < ARRAY_LEN(wii_missionpak_checksums); i++)
+		{
+			if(search->pack->checksum == wii_missionpak_checksums[i])
+			{
+				search->pack->referenced |= FS_GENERAL_REF |
+					(!Q_stricmp(name, "cgame") ? FS_CGAME_REF : FS_UI_REF);
+				return qtrue;
+			}
+		}
+		return qfalse;
+	}
+	return qfalse;
+}
+#endif
+
 /*
 =================
 FS_Read

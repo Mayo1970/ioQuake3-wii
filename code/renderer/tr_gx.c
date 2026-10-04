@@ -10,13 +10,24 @@
 
 gx_state_t gxState;
 
-/* Polygon offset for decals; applied as constant window-depth bias in gxbe_load_projection. */
+/* Polygon offset for decals: units = constant z bias (gxbe_load_projection),
+ * factor = per-vertex slope pull (gxbe_offset_slope). GX has no polygon offset. */
 static int   s_polyOffsetFill;
 static float s_polyOffsetUnits;
+static float s_polyOffsetFactor;
+
+/* Portal/mirror clip plane (eye space), applied on the CPU in GXBE_DrawTess. GX has no clip
+ * planes, and its 6-param projection drops an oblique z-row's x/y terms (black mirrors). */
+static qboolean s_clipActive;
+static float    s_clipEye[4];
+
+#define GXBE_MAX_SPLIT  128   /* portal-clip triangles split per draw; any more are kept whole */
+#define GXBE_MAX_VERTS  (SHADER_MAX_VERTEXES + 2 * GXBE_MAX_SPLIT)
+#define GXBE_CLIP_EPS   0.1f  /* keeps vertices that lie on the portal plane */
 
 /* Vertex staging ring: decouples CPU tess rewrites from GPU reads via GX_SetDrawSync. */
 
-#define GXBE_RING_HALF  (128 * 1024)  /* worst-case draw ~52 KB (1000 verts,
+#define GXBE_RING_HALF  (128 * 1024)  /* worst-case draw ~65 KB (1000 + 256 clip verts,
                                        * stride-16 pos + 2x stride-16 tex) */
 static u8      *s_vtxRing;            /* memalign(32, 2 * GXBE_RING_HALF) */
 static u32      s_ringPos;            /* write offset within current half */
@@ -83,9 +94,8 @@ static void gxbe_ring_reset(void)
     s_syncToken = 0;
 }
 
-/* Load projection with optional polygon-offset z bias.
- * Bias is a constant NDC offset (eps * w row) so it's distance-independent,
- * unlike a clip-space translation which decays as 1/distance. */
+/* Load projection plus the polygon-offset units term: a constant NDC z bias (eps * w row),
+ * unlike a clip-space translation, which decays as 1/distance. */
 static void gxbe_load_projection(void)
 {
     if (s_polyOffsetFill && s_polyOffsetUnits != 0.0f) {
@@ -251,6 +261,8 @@ void GXBE_SetDefaultState(void)
     gxState.tevDirty       = qtrue;
     s_polyOffsetFill       = 0;
     s_polyOffsetUnits      = 0.0f;
+    s_polyOffsetFactor     = 0.0f;
+    s_clipActive           = qfalse;
 
     /* Staging ring allocated once; survives vid_restart. Failure is non-fatal (DrawDone fallback). */
     if (!s_vtxRing) {
@@ -270,9 +282,8 @@ void GXBE_SetDefaultState(void)
     gxState.texStride[0] = sizeof(vec2_t);
     gxState.texStride[1] = sizeof(vec2_t);
 
-    /* Full-screen viewport so DepthRange/Clear have sane geometry before first
-     * SetViewportAndScissor. Routed through GXBE_SetViewport (not raw GX_SetViewport)
-     * so the TV-border inset applies from the very first frame. */
+    /* Full-screen viewport so DepthRange/Clear work before the first SetViewportAndScissor.
+     * Goes through GXBE_SetViewport so the TV-border inset applies from the first frame. */
     gxState.depthNear = 0.0f;
     gxState.depthFar  = 1.0f;
     GXBE_SetViewport(0, 0, glConfig.vidWidth, glConfig.vidHeight);
@@ -499,8 +510,8 @@ void GXBE_LoadIdentityModelview(void)
     GX_LoadPosMtxImm(gxState.mvMtx, GX_PNMTX0);
 }
 
-/* Load Q3's GL projection into GX. GL z is [-w,+w]; GX z is [-w,0].
- * Z row is remapped: zGX = (zGL - w) / 2. Works for oblique projections too. */
+/* Load Q3's GL projection into GX. GL z is [-w,+w]; GX z is [-w,0], so zGX = (zGL - w) / 2.
+ * GX keeps only z-row [2][2]/[2][3]: never pass an oblique matrix here. */
 void GXBE_LoadProjectionGL(const float *gl16)
 {
     int r, c;
@@ -517,41 +528,12 @@ void GXBE_LoadProjectionGL(const float *gl16)
     gxbe_load_projection();
 }
 
-/* Oblique near-plane projection for portals/mirrors (Lengyel). GX has no clip planes,
- * so the z row is rebuilt so the near plane coincides with the portal plane. */
-void GXBE_LoadProjectionObliqueGL(const float *gl16, const float *eyePlane)
+/* Portal views pass the portal plane in eye space (keep the >= 0 side); NULL turns it off. */
+void GXBE_SetClipPlane(const float *eyePlane)
 {
-    float m[16];
-    float qx, qy, qz, qw, d, a;
-
-    /* Degenerate: camera on portal plane — fall back to plain projection. */
-    if (eyePlane[3] > -1e-4f) {
-        GXBE_LoadProjectionGL(gl16);
-        return;
-    }
-
-    Com_Memcpy(m, gl16, sizeof(m));
-
-    /* Far-plane corner nearest the clip plane, back-projected to eye space (Lengyel, GL column-major). */
-    qx = ((eyePlane[0] < 0.0f ? -1.0f : 1.0f) + m[8]) / m[0];
-    qy = ((eyePlane[1] < 0.0f ? -1.0f : 1.0f) + m[9]) / m[5];
-    qz = -1.0f;
-    qw = (1.0f + m[10]) / m[14];
-
-    d = eyePlane[0] * qx + eyePlane[1] * qy + eyePlane[2] * qz + eyePlane[3] * qw;
-    if (d > -1e-6f && d < 1e-6f) {
-        GXBE_LoadProjectionGL(gl16);
-        return;
-    }
-    a = 2.0f / d;
-
-    /* Replace the GL z row: near plane == portal plane */
-    m[2]  = eyePlane[0] * a;
-    m[6]  = eyePlane[1] * a;
-    m[10] = eyePlane[2] * a + 1.0f;
-    m[14] = eyePlane[3] * a;
-
-    GXBE_LoadProjectionGL(m);   /* general z-row conversion handles oblique */
+    s_clipActive = (eyePlane != NULL);
+    if (eyePlane)
+        Com_Memcpy(s_clipEye, eyePlane, sizeof(s_clipEye));
 }
 
 /* Transpose GL column-major modelview into libogc row-major 3x4 Mtx and load as position matrix. */
@@ -580,10 +562,8 @@ void GXBE_LoadModelviewTranslatedGL(const float *gl16, const vec3_t origin)
     GXBE_LoadModelviewGL(m);
 }
 
-/* Insets a full-screen-space rect toward the center by r_tvborder (TV overscan
- * safe area), so every viewport/scissor consumer lands inside the TV-safe
- * area without touching VI timing/rmode (see CLAUDE.md renderer section —
- * VIDEO_Configure/rmode edits are the documented flicker trap). */
+/* Insets a rect toward the center by r_tvborder (TV overscan safe area). Done here, not via
+ * VI timing/rmode: VIDEO_Configure/rmode edits are the documented flicker trap (CLAUDE.md). */
 static void gxbe_apply_tvborder(int *x, int *y, int *w, int *h)
 {
     float b, sx, sy;
@@ -642,7 +622,7 @@ void GXBE_DepthRange(float n, float f)
 /* Q3 toggles GL_POLYGON_OFFSET_FILL without reloading the projection, so reload it here. */
 void GXBE_PolygonOffset(float factor, float units)
 {
-    (void)factor;   /* OpenGX ignores it too */
+    s_polyOffsetFactor = factor;   /* used per draw, no reload needed */
     if (s_polyOffsetUnits == units)
         return;
     s_polyOffsetUnits = units;
@@ -814,10 +794,201 @@ void GXBE_SetTexture2DEnabled(int enabled)
     }
 }
 
+/* GL's slope term: pull each vertex toward the eye along its view ray (same screen position)
+ * until its depth drops by |factor| pixels of its triangle's depth slope (Q3 uses 1 px). */
+static void gxbe_offset_slope(u8 *pos, int stride, int numVerts,
+                              const glIndex_t *indexes, int numIndexes)
+{
+    static vec3_t s_eyePos[GXBE_MAX_VERTS];
+    static float  s_dInvW[GXBE_MAX_VERTS];
+    f32 (*m)[4] = gxState.mvMtx;
+    float c00, c01, c02, c10, c11, c12, c20, c21, c22, det;
+    float pxX, pxY, scale;
+    vec3_t eye;
+    int i;
+
+    if (numVerts > GXBE_MAX_VERTS || gxState.vpW <= 0 || gxState.vpH <= 0)
+        return;
+
+    /* Eye in model space: E = -L^-1 * t, via the adjugate (entity axes may be scaled). */
+    c00 = m[1][1] * m[2][2] - m[1][2] * m[2][1];
+    c01 = m[1][2] * m[2][0] - m[1][0] * m[2][2];
+    c02 = m[1][0] * m[2][1] - m[1][1] * m[2][0];
+    c10 = m[0][2] * m[2][1] - m[0][1] * m[2][2];
+    c11 = m[0][0] * m[2][2] - m[0][2] * m[2][0];
+    c12 = m[0][1] * m[2][0] - m[0][0] * m[2][1];
+    c20 = m[0][1] * m[1][2] - m[0][2] * m[1][1];
+    c21 = m[0][2] * m[1][0] - m[0][0] * m[1][2];
+    c22 = m[0][0] * m[1][1] - m[0][1] * m[1][0];
+    det = m[0][0] * c00 + m[0][1] * c01 + m[0][2] * c02;
+    if (fabsf(det) < 1e-12f)
+        return;
+    eye[0] = -(c00 * m[0][3] + c10 * m[1][3] + c20 * m[2][3]) / det;
+    eye[1] = -(c01 * m[0][3] + c11 * m[1][3] + c21 * m[2][3]) / det;
+    eye[2] = -(c02 * m[0][3] + c12 * m[1][3] + c22 * m[2][3]) / det;
+
+    /* For eye-space plane N.P = k: d(1/w)/dpixel = N_x / (k * P00 * vpW/2), same for y. */
+    pxX = 2.0f / (fabsf(gxState.projMtx[0][0]) * (float)gxState.vpW);
+    pxY = 2.0f / (fabsf(gxState.projMtx[1][1]) * (float)gxState.vpH);
+    scale = -s_polyOffsetFactor;
+
+    for (i = 0; i < numVerts; i++) {
+        const float *p = (const float *)(pos + i * stride);
+        s_eyePos[i][0] = m[0][0] * p[0] + m[0][1] * p[1] + m[0][2] * p[2] + m[0][3];
+        s_eyePos[i][1] = m[1][0] * p[0] + m[1][1] * p[1] + m[1][2] * p[2] + m[1][3];
+        s_eyePos[i][2] = m[2][0] * p[0] + m[2][1] * p[1] + m[2][2] * p[2] + m[2][3];
+        s_dInvW[i] = 0.0f;
+    }
+
+    for (i = 0; i + 2 < numIndexes; i += 3) {
+        int ia = (int)indexes[i], ib = (int)indexes[i + 1], ic = (int)indexes[i + 2];
+        vec3_t e1, e2, n;
+        float sx, sy, slope, k, d;
+
+        VectorSubtract(s_eyePos[ib], s_eyePos[ia], e1);
+        VectorSubtract(s_eyePos[ic], s_eyePos[ia], e2);
+        CrossProduct(e1, e2, n);
+        /* Slivers cover no pixels and their normal is fp noise. */
+        if (DotProduct(n, n) <= 1e-6f * DotProduct(e1, e1) * DotProduct(e2, e2))
+            continue;
+        sx = fabsf(n[0]) * pxX;
+        sy = fabsf(n[1]) * pxY;
+        slope = scale * (sx > sy ? sx : sy);
+        k = fabsf(DotProduct(n, s_eyePos[ia]));
+        d = (slope < k) ? slope / k : 1.0f;   /* plane through the eye: capped below */
+        if (d > s_dInvW[ia]) s_dInvW[ia] = d;
+        if (d > s_dInvW[ib]) s_dInvW[ib] = d;
+        if (d > s_dInvW[ic]) s_dInvW[ic] = d;
+    }
+
+    for (i = 0; i < numVerts; i++) {
+        float *p = (float *)(pos + i * stride);
+        float f = -s_eyePos[i][2] * s_dInvW[i];   /* new w = w / (1 + f) */
+        float s;
+
+        if (f <= 0.0f)
+            continue;   /* no pull, or vertex behind the eye */
+        if (f > 0.5f)
+            f = 0.5f;   /* near edge-on planes: pull at most 1/3 of the distance */
+        s = 1.0f / (1.0f + f);
+        p[0] = eye[0] + s * (p[0] - eye[0]);
+        p[1] = eye[1] + s * (p[1] - eye[1]);
+        p[2] = eye[2] + s * (p[2] - eye[2]);
+    }
+}
+
+static float     s_clipDist[SHADER_MAX_VERTEXES];
+static glIndex_t s_clipIdx[SHADER_MAX_INDEXES + 3 * GXBE_MAX_SPLIT];
+static glIndex_t s_clipTri[GXBE_MAX_SPLIT][3];   /* split triangles, lone vertex first */
+static int       s_clipNumSplit;
+
+/* Clips the triangles to the front of the portal plane. Returns -1 if all are in front (draw
+ * as is), else the s_clipIdx count. Split verts go after numVerts, 2 per s_clipTri entry. */
+static int gxbe_clip_tris(int numVerts, const glIndex_t *indexes, int numIndexes, int maxSplit)
+{
+    f32 (*m)[4] = gxState.mvMtx;
+    float pl[4];
+    int i, nIn = 0, n = 0;
+
+    s_clipNumSplit = 0;
+
+    /* Plane into model space: eye = M * p, so plane_model = M^T * plane_eye. */
+    for (i = 0; i < 4; i++)
+        pl[i] = s_clipEye[0] * m[0][i] + s_clipEye[1] * m[1][i] + s_clipEye[2] * m[2][i];
+    pl[3] += s_clipEye[3] + GXBE_CLIP_EPS;
+
+    for (i = 0; i < numVerts; i++) {
+        const float *p = (const float *)((const u8 *)gxState.posPtr + i * gxState.posStride);
+        s_clipDist[i] = pl[0] * p[0] + pl[1] * p[1] + pl[2] * p[2] + pl[3];
+        nIn += (s_clipDist[i] >= 0.0f);
+    }
+    if (nIn == numVerts)
+        return -1;
+    if (nIn == 0)
+        return 0;
+
+    for (i = 0; i + 2 < numIndexes; i += 3) {
+        const glIndex_t *v = indexes + i;
+        int in0 = (s_clipDist[v[0]] >= 0.0f);
+        int in1 = (s_clipDist[v[1]] >= 0.0f);
+        int in2 = (s_clipDist[v[2]] >= 0.0f);
+        int in = in0 + in1 + in2, lone;
+        glIndex_t *t, k;
+
+        if (in == 0)
+            continue;
+        if (in == 3 || s_clipNumSplit >= maxSplit) {
+            s_clipIdx[n++] = v[0];
+            s_clipIdx[n++] = v[1];
+            s_clipIdx[n++] = v[2];
+            continue;
+        }
+        /* Rotate (keeps the winding) so the vertex alone on its side comes first. */
+        if (in == 1)
+            lone = in0 ? 0 : (in1 ? 1 : 2);
+        else
+            lone = !in0 ? 0 : (!in1 ? 1 : 2);
+        t = s_clipTri[s_clipNumSplit];
+        t[0] = v[lone];
+        t[1] = v[(lone + 1) % 3];
+        t[2] = v[(lone + 2) % 3];
+        k = (glIndex_t)(numVerts + 2 * s_clipNumSplit++);   /* k on edge t0-t1, k+1 on t0-t2 */
+        if (in == 1) {
+            s_clipIdx[n++] = t[0]; s_clipIdx[n++] = k;    s_clipIdx[n++] = k + 1;
+        } else {
+            s_clipIdx[n++] = k;    s_clipIdx[n++] = t[1]; s_clipIdx[n++] = t[2];
+            s_clipIdx[n++] = k;    s_clipIdx[n++] = t[2]; s_clipIdx[n++] = k + 1;
+        }
+    }
+    return n;
+}
+
+/* Lerps one 2-float texcoord along a cut edge into the new vertex slot. */
+static void gxbe_clip_lerp_st(u8 *arr, int stride, int a, int b, int o, float f)
+{
+    const float *ta = (const float *)(arr + a * stride);
+    const float *tb = (const float *)(arr + b * stride);
+    float *to = (float *)(arr + o * stride);
+
+    to[0] = ta[0] + f * (tb[0] - ta[0]);
+    to[1] = ta[1] + f * (tb[1] - ta[1]);
+}
+
+/* Fills the split vertices in the staged arrays (tex1 may be NULL). */
+static void gxbe_clip_fill(u8 *pos, u8 *clr, u8 *tex0, u8 *tex1, int numVerts)
+{
+    int s, e, c;
+
+    for (s = 0; s < s_clipNumSplit; s++) {
+        for (e = 0; e < 2; e++) {
+            int a = (int)s_clipTri[s][0], b = (int)s_clipTri[s][1 + e];
+            int o = numVerts + 2 * s + e;
+            float f = s_clipDist[a] / (s_clipDist[a] - s_clipDist[b]);   /* signs differ */
+            const float *pa = (const float *)(pos + a * gxState.posStride);
+            const float *pb = (const float *)(pos + b * gxState.posStride);
+            float *po = (float *)(pos + o * gxState.posStride);
+            const u8 *ca = clr + a * gxState.clrStride;
+            const u8 *cb = clr + b * gxState.clrStride;
+            u8 *co = clr + o * gxState.clrStride;
+
+            for (c = 0; c < 3; c++)
+                po[c] = pa[c] + f * (pb[c] - pa[c]);
+            for (c = 0; c < 4; c++)
+                co[c] = (u8)((float)ca[c] + f * (float)(cb[c] - ca[c]) + 0.5f);
+            gxbe_clip_lerp_st(tex0, gxState.texStride[0], a, b, o, f);
+            if (tex1)
+                gxbe_clip_lerp_st(tex1, gxState.texStride[1], a, b, o, f);
+        }
+    }
+}
+
 void GXBE_DrawTess(int numIndexes, const glIndex_t *indexes)
 {
     int i;
     int numTex;
+    int numVerts;
+    const glIndex_t *srcIndexes = indexes;
+    int srcNumIndexes = numIndexes;
     const void *posPtr, *clrPtr, *texPtr0, *texPtr1;
     u32 posSize, clrSize, texSize0, texSize1;
     qboolean syncAfterDraw = qfalse;
@@ -826,6 +997,20 @@ void GXBE_DrawTess(int numIndexes, const glIndex_t *indexes)
         return;
 
     numTex = gxState.numActiveTMUs;
+    numVerts = tess.numVertexes;
+
+    /* Portal view: drop or split the triangles behind the portal plane. */
+    if (s_clipActive && gxState.projType == GX_PERSPECTIVE) {
+        int n = gxbe_clip_tris(tess.numVertexes, indexes, numIndexes, GXBE_MAX_SPLIT);
+
+        if (n == 0)
+            return;
+        if (n > 0) {
+            indexes    = s_clipIdx;
+            numIndexes = n;
+            numVerts  += 2 * s_clipNumSplit;
+        }
+    }
 
     /* Stage vertex data into the fenced ring so the CPU can rewrite tess freely.
      * Stride bytes per vertex copied = exactly what the GP would fetch in place. */
@@ -835,10 +1020,12 @@ void GXBE_DrawTess(int numIndexes, const glIndex_t *indexes)
     texSize1 = (numTex == 2) ? (u32)tess.numVertexes * (u32)gxState.texStride[1] : 0;
 
     {
-        u32 a_pos = (posSize  + 31) & ~31u;
-        u32 a_clr = (clrSize  + 31) & ~31u;
-        u32 a_t0  = (texSize0 + 31) & ~31u;
-        u32 a_t1  = (texSize1 + 31) & ~31u;
+        /* Room for the portal-clip split vertices after the copied ones. */
+        u32 extra = (u32)(numVerts - tess.numVertexes);
+        u32 a_pos = (posSize  + extra * gxState.posStride + 31) & ~31u;
+        u32 a_clr = (clrSize  + extra * gxState.clrStride + 31) & ~31u;
+        u32 a_t0  = (texSize0 + extra * gxState.texStride[0] + 31) & ~31u;
+        u32 a_t1  = (numTex == 2) ? (texSize1 + extra * gxState.texStride[1] + 31) & ~31u : 0;
         u8 *blk = (u8 *)gxbe_ring_alloc(a_pos + a_clr + a_t0 + a_t1);
 
         if (blk) {
@@ -853,11 +1040,20 @@ void GXBE_DrawTess(int numIndexes, const glIndex_t *indexes)
             texPtr0 = blk + a_pos + a_clr;
             texPtr1 = blk + a_pos + a_clr + a_t0;
 
+            if (extra)
+                gxbe_clip_fill(blk, blk + a_pos, blk + a_pos + a_clr,
+                               (numTex == 2) ? blk + a_pos + a_clr + a_t0 : NULL, tess.numVertexes);
+
+            /* Edits the staged copy only, so every stage pulls from the same tess.xyz. */
+            if (s_polyOffsetFill && s_polyOffsetFactor < 0.0f && gxState.projType == GX_PERSPECTIVE)
+                gxbe_offset_slope(blk, gxState.posStride, numVerts, indexes, numIndexes);
+
             DCFlushRange(blk, a_pos + a_clr + a_t0 + a_t1);
         } else {
-            /* Ring alloc failed: draw from client arrays in place and sync
-             * right after GX_End below — the caller rewrites tess as soon as
-             * we return, so deferring the sync to the next draw is a race. */
+            /* Ring alloc failed: draw client arrays in place and sync right after GX_End,
+             * since the caller rewrites tess as soon as we return. No slope offset here. */
+            if (extra)   /* no room for split verts: keep the cut triangles whole */
+                numIndexes = gxbe_clip_tris(tess.numVertexes, srcIndexes, srcNumIndexes, 0);
             syncAfterDraw = qtrue;
             posPtr  = gxState.posPtr;
             clrPtr  = gxState.clrPtr;
@@ -917,10 +1113,8 @@ void GXBE_DrawTess(int numIndexes, const glIndex_t *indexes)
     }
     GX_End();
 
-    /* Fallback (no ring): the GP is still reading the client arrays we just
-     * pointed it at; block until it's done before the caller rewrites them.
-     * Ring path needs nothing — the staged copy is immutable until
-     * fence-recycled. */
+    /* Fallback: the GP still reads the client arrays, so block before the caller rewrites
+     * them. The ring copy stays untouched until its fence recycles it. */
     if (syncAfterDraw)
         GX_DrawDone();
 }

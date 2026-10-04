@@ -67,13 +67,13 @@ void GXBE_SetViewport(int x, int y, int w, int h);
 void GXBE_SetScissor(int x, int y, int w, int h);
 void GXBE_DepthRange(float n, float f);
 
-/* Polygon offset for decals. Routed from qgl_wii.c wrappers; factor ignored (OpenGX ignores it too). */
+/* Polygon offset for decals, routed from qgl_wii.c. units = constant z bias, factor = slope pull in DrawTess. */
 void GXBE_PolygonOffset(float factor, float units);
 void GXBE_SetPolygonOffsetEnabled(int enabled);
 
 /* Matrices (3D path, Phase 3). Inputs are Q3's column-major GL float[16]. */
 void GXBE_LoadProjectionGL(const float *gl16);   /* perspective; z row rebuilt for GX clip space */
-void GXBE_LoadProjectionObliqueGL(const float *gl16, const float *eyePlane); /* portal clip: oblique near plane (Lengyel), GX has no clip planes */
+void GXBE_SetClipPlane(const float *eyePlane);   /* portal clip, done on the CPU in DrawTess; NULL = off */
 void GXBE_LoadModelviewGL(const float *gl16);
 void GXBE_LoadModelviewTranslatedGL(const float *gl16, const vec3_t origin);
 
@@ -101,9 +101,10 @@ float GXBE_PeekDepth(int x, int y);
 void  GXBE_ReadPixelsRGB(int x, int y, int w, int h, int padlen, byte *dst);
 
 /* Texture ops (tr_gx_texture.c). Upload32 expects the final scaled/picmipped buffer, stored
- * as RGB565 or RGB5A3. When mipmap=true, data is reduced IN PLACE level by level. */
+ * as RGB565, RGB5A3 or CMPR. When mipmap=true, data is reduced IN PLACE level by level. */
 void     GXBE_CreateTexnum(GLuint *texnum);
 void     GXBE_DeleteTexnum(int texnum);
+void     GXBE_SetUploadImage(const char *name, int flags);
 void     GXBE_Upload32(unsigned *data, int width, int height,
                        int glInternalFormat, int texnum, int wrapClampMode,
                        qboolean mipmap);

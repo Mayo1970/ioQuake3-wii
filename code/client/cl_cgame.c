@@ -684,11 +684,7 @@ intptr_t CL_CgameSystemCalls( intptr_t *args ) {
 		return 0;
 
 	case CG_CIN_PLAYCINEMATIC:
-#if defined(STANDALONETA)
-	  return -1; /* disable in-game cinematics on Wii — decoder buffers exhaust the hunk */
-#else
 	  return CIN_PlayCinematic(VMA(1), args[2], args[3], args[4], args[5], args[6]);
-#endif
 
 	case CG_CIN_STOPCINEMATIC:
 	  return CIN_StopCinematic(args[1]);
@@ -757,7 +753,13 @@ void CL_InitCGame( void ) {
 
 	// load the dll or bytecode
 	interpret = Cvar_VariableValue("vm_cgame");
+#ifdef WII_NATIVE_TA
+	// The linked-in cgame replaces a stock missionpack cgame.qvm on pure servers too.
+	if(cl_connectedToPureServer && !(interpret == VMI_NATIVE &&
+		Sys_WiiUseBuiltinModule("cgame") && FS_WiiStockVM("cgame")))
+#else
 	if(cl_connectedToPureServer)
+#endif
 	{
 		// if sv_pure is set we only allow qvms to be loaded
 		if(interpret != VMI_COMPILED && interpret != VMI_BYTECODE)
@@ -770,9 +772,8 @@ void CL_InitCGame( void ) {
 	}
 	clc.state = CA_LOADING;
 
-	// init for this gamestate
-	// use the lastExecutedServerCommand instead of the serverCommandSequence
-	// otherwise server commands sent just before a gamestate are dropped
+	// init for this gamestate; lastExecutedServerCommand, not serverCommandSequence,
+	// or server commands sent just before a gamestate are dropped
 	VM_Call( cgvm, CG_INIT, clc.serverMessageSequence, clc.lastExecutedServerCommand, clc.clientNum );
 
 	// reset any CVAR_CHEAT cvars registered by cgame

@@ -2465,16 +2465,23 @@ void Com_GameRestart(int checksumFeed, qboolean disconnect)
 		wii_diag("GameRestart: Cvar_Restart\n");
 		// Clean out any user and VM created cvars
 		Cvar_Restart(qtrue);
+#ifndef WII_NATIVE_TA
 		Cvar_Set("vm_ui",    "1");
 		Cvar_Set("vm_cgame", "1");
 		Cvar_Set("vm_game",  "1");
+#endif
 		Com_ExecuteCfg();
+#ifdef WII_NATIVE_TA
+		// After the cfg: a stale archived vm_* 1 would put the TA QVMs back on the hunk.
+		Cvar_Set("vm_ui",    "0");
+		Cvar_Set("vm_cgame", "0");
+		Cvar_Set("vm_game",  "0");
+#endif
 
 		if(disconnect)
 		{
-			// We don't want to change any network settings if gamedir
-			// change was triggered by a connect to server because the
-			// new network settings might make the connection fail.
+			// Skip on a connect-triggered gamedir change: new network
+			// settings might make that connection fail.
 			NET_Restart_f();
 		}
 

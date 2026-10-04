@@ -634,6 +634,22 @@ vm_t *VM_Create( const char *module, intptr_t (*systemCalls)(intptr_t *),
 
 	Q_strncpyz(vm->name, module, sizeof(vm->name));
 
+#ifdef WII_NATIVE_TA
+	// The missionpack modules are linked into the TA DOL (sys/wii_modules.c).
+	if(interpret == VMI_NATIVE && Sys_WiiUseBuiltinModule(module))
+	{
+		vm->dllHandle = Sys_LoadGameDll(module, &vm->entryPoint, VM_DllSyscall);
+
+		if(vm->dllHandle)
+		{
+			vm->systemCall = systemCalls;
+			return vm;
+		}
+
+		Com_Printf("Failed loading built-in %s, trying the QVM\n", module);
+	}
+#endif
+
 	wii_diag_sync("VM_Create: finding %s\n", module);
 	do
 	{

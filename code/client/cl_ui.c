@@ -1051,11 +1051,7 @@ intptr_t CL_UISystemCalls( intptr_t *args ) {
 
 	case UI_CIN_PLAYCINEMATIC:
 	  Com_DPrintf("UI_CIN_PlayCinematic\n");
-#if defined(STANDALONETA)
-	  return -1; /* disable menu cinematics on Wii — too memory-heavy */
-#else
 	  return CIN_PlayCinematic(VMA(1), args[2], args[3], args[4], args[5], args[6]);
-#endif
 
 	case UI_CIN_STOPCINEMATIC:
 	  return CIN_StopCinematic(args[1]);
@@ -1115,7 +1111,13 @@ void CL_InitUI( void ) {
 
 	// load the dll or bytecode
 	interpret = Cvar_VariableValue("vm_ui");
+#ifdef WII_NATIVE_TA
+	// The linked-in ui replaces a stock missionpack ui.qvm on pure servers too.
+	if(cl_connectedToPureServer && !(interpret == VMI_NATIVE &&
+		Sys_WiiUseBuiltinModule("ui") && FS_WiiStockVM("ui")))
+#else
 	if(cl_connectedToPureServer)
+#endif
 	{
 		// if sv_pure is set we only allow qvms to be loaded
 		if(interpret != VMI_COMPILED && interpret != VMI_BYTECODE)

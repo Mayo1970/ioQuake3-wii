@@ -84,9 +84,8 @@ WII_FSGAME ?=
 # vm_*=2. Escape hatch: make WII_VM_NATIVE=0 dol builds the bytecode
 # interpreter (needs more hunk — big maps like q3dm11 may OOM there).
 WII_VM_NATIVE ?= 1
-# Open Arena and Team Arena: force the interpreter. Their larger QVMs make the
-# JIT's simultaneous multi-VM code-buffer residency too heavy to load maps on
-# real hardware. Removing ~2.3 MB of resident JIT code frees the MEM2 bump.
+# OA/TA QVMs use the interpreter: three resident JIT code buffers starve map loads.
+# TA's own modules are linked in natively (see WII_MODULE_RULES); only mod QVMs hit this.
 ifeq ($(_OA),1)
   override WII_VM_NATIVE := 0
 endif
@@ -117,7 +116,7 @@ WII_GX_PROFILE ?= 0
 
 ifeq ($(_TA),1)
   BUILD          := build_ta
-  GAMEMODE_FLAGS := -DSTANDALONETA -DWII_BASEGAME=\"baseq3\"
+  GAMEMODE_FLAGS := -DSTANDALONETA -DWII_BASEGAME=\"baseq3\" -DWII_NATIVE_TA
   DOL_DEST       := /apps/teamarena/boot.dol
   DOL_NOTE       := TA data: sd:/quake3/baseq3/pak*.pk3 + sd:/quake3/missionpack/pak*.pk3
 else ifeq ($(_OA),1)
@@ -449,6 +448,61 @@ $(CFLAGS_STAMP): cflags-stamp-force
 $(OBJS): $(CFLAGS_STAMP)
 
 #---------------------------------------------------------------------------------
+# Team Arena native modules: cgame/qagame/ui as PPC objects linked into the DOL
+# (code/sys/wii_modules.c). Lists follow upstream cmake/missionpack.cmake.
+#---------------------------------------------------------------------------------
+WII_MODULE_OBJS :=
+ifeq ($(_TA),1)
+MOD_DIR    := $(BUILD)/modules
+MOD_SHARED := code/qcommon/q_math.c code/qcommon/q_shared.c
+MOD_BG     := code/game/bg_misc.c code/game/bg_pmove.c code/game/bg_slidemove.c
+
+qagame_SRCS := $(addprefix code/game/,g_main.c ai_chat.c ai_cmd.c ai_dmnet.c ai_dmq3.c \
+  ai_main.c ai_team.c ai_vcmd.c g_active.c g_arenas.c g_bot.c g_client.c g_cmds.c \
+  g_combat.c g_items.c g_mem.c g_misc.c g_missile.c g_mover.c g_session.c g_spawn.c \
+  g_svcmds.c g_target.c g_team.c g_trigger.c g_utils.c g_weapon.c g_syscalls.c) \
+  $(MOD_BG) $(MOD_SHARED)
+cgame_SRCS := $(addprefix code/cgame/,cg_main.c cg_consolecmds.c cg_draw.c cg_drawtools.c \
+  cg_effects.c cg_ents.c cg_event.c cg_info.c cg_localents.c cg_marks.c cg_newdraw.c \
+  cg_particles.c cg_players.c cg_playerstate.c cg_predict.c cg_scoreboard.c \
+  cg_servercmds.c cg_snapshot.c cg_view.c cg_weapons.c cg_syscalls.c) \
+  code/ui/ui_shared.c $(MOD_BG) $(MOD_SHARED)
+ui_SRCS := $(addprefix code/ui/,ui_main.c ui_atoms.c ui_gameinfo.c ui_players.c \
+  ui_shared.c ui_syscalls.c) code/game/bg_misc.c $(MOD_SHARED)
+
+# Args: module, module define. Only the renamed entry points and the data/bss markers
+# stay global, so each module's q_shared, bg_misc and Com_Printf never clash in the link.
+define WII_MODULE_RULES
+$(1)_OBJS := $$(patsubst %.c,$$(MOD_DIR)/$(1)/%.o,$$($(1)_SRCS))
+$$($(1)_OBJS): $$(CFLAGS_STAMP)
+
+$$(MOD_DIR)/$(1)/%.o: %.c
+	@mkdir -p $$(dir $$@)
+	@echo "CC [$(1)] $$<"
+	$$(CC) $$(CFLAGS) -fno-common -DMISSIONPACK -D$(2) -DvmMain=vmMain_$(1) \
+		-DdllEntry=dllEntry_$(1) -c $$< -o $$@
+
+$$(MOD_DIR)/$(1).o: $$($(1)_OBJS) code/sys/wii_module.ld
+	@echo "MODULE $$@"
+	$$(PREFIX)ld -r -T code/sys/wii_module.ld -o $$@.r $$($(1)_OBJS)
+	$$(OBJCOPY) -G vmMain_$(1) -G dllEntry_$(1) -G wiimod_data_start -G wiimod_data_end \
+		-G wiimod_bss_start -G wiimod_bss_end $$@.r $$@.g
+	$$(OBJCOPY) --redefine-sym wiimod_data_start=wiimod_$(1)_data_start \
+		--redefine-sym wiimod_data_end=wiimod_$(1)_data_end \
+		--redefine-sym wiimod_bss_start=wiimod_$(1)_bss_start \
+		--redefine-sym wiimod_bss_end=wiimod_$(1)_bss_end $$@.g $$@
+	@rm -f $$@.r $$@.g
+
+-include $$($(1)_OBJS:.o=.d)
+WII_MODULE_OBJS += $$(MOD_DIR)/$(1).o
+endef
+
+$(eval $(call WII_MODULE_RULES,qagame,QAGAME))
+$(eval $(call WII_MODULE_RULES,cgame,CGAME))
+$(eval $(call WII_MODULE_RULES,ui,UI))
+endif
+
+#---------------------------------------------------------------------------------
 # Build rules
 #---------------------------------------------------------------------------------
 .PHONY: all dol prebuild clean
@@ -459,7 +513,7 @@ prebuild:
 	@cp $(ZLIB_DIR)/zlib.h $(ZLIB_H_COPY)
 	@test -f $(ZLIB_DIR)/zconf.h && cp $(ZLIB_DIR)/zconf.h $(ZCONF_H_COPY) || true
 
-$(BUILD)/$(TARGET).elf: prebuild $(OBJS)
+$(BUILD)/$(TARGET).elf: prebuild $(OBJS) $(WII_MODULE_OBJS)
 	@echo "Linking $@"
 	$(CC) $(LDFLAGS) $(filter %.o,$^) $(LIBS) -o $@
 
