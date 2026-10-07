@@ -12,7 +12,11 @@ extern void GXBE_FrameEnd(void);
 
 #define GX_FIFO_SIZE    (256 * 1024)
 #define NUM_FRAMEBUFFERS 2
+/* VI output width for the 640 px XFB: 704 is the 4:3 active line. Stock modes use 640 of the
+   720 px line, which a CRT shows as a narrow (squashed) picture with black side bars. */
+#define WII_VI_WIDTH    704
 
+static GXRModeObj   s_mode;   /* private copy, so libogc's mode tables stay stock */
 static GXRModeObj  *s_rmode       = NULL;
 static void        *s_framebuf[NUM_FRAMEBUFFERS] = { NULL, NULL };
 static void        *s_gp_fifo     = NULL;
@@ -95,23 +99,23 @@ qboolean Wii_GX_Init(void)
     if (s_initialised)
         return qtrue;
 
-    /* Video mode is a boot-time-only choice on this port (never changes
-       mid-session) - on a vid_restart-triggered re-init, reuse the
-       existing framebuffers instead of leaking two new ~1.2MB XFBs on
-       top of the never-freed old ones (Wii_GX_Shutdown frees the GX FIFO
-       but deliberately does not free s_framebuf). */
+    /* Video mode is boot-time only: a vid_restart re-init reuses the XFBs (Wii_GX_Shutdown
+       keeps them) instead of leaking two new ~1.2 MB ones. */
     if (!s_framebuf[0]) {
         VIDEO_Init();
         switch (wii_video_mode_choice) {
-            case 1:  s_rmode = &TVNtsc240Ds; break;
-            case 2:  s_rmode = &TVPal264Ds;  break;
-            default: s_rmode = VIDEO_GetPreferredMode(NULL); break;
+            case 1:  s_mode = TVNtsc240Ds; break;
+            case 2:  s_mode = TVPal264Ds;  break;
+            default: VIDEO_GetPreferredMode(&s_mode); break;
         }
+        /* The VI scaler stretches the 640 px XFB to the full 4:3 width; EFB and XFB sizes are
+           unchanged. Every format's VI line is 720 px, so this centres it. */
+        s_mode.viWidth   = WII_VI_WIDTH;
+        s_mode.viXOrigin = (VI_MAX_WIDTH_NTSC - WII_VI_WIDTH) / 2;
+        s_rmode = &s_mode;
 
-        /* In the default video mode the boot console's XFB was allocated for
-           this exact rmode and is now dead - reuse it as buffer 0 instead of
-           allocating a third ~1 MB XFB that never gets freed. The 240p/264p
-           Ds modes render at a different size, so they still allocate both. */
+        /* Default mode: the boot console's XFB has this size and is now unused, so it becomes
+           buffer 0 instead of a third ~1 MB XFB. 240p/264p are smaller and allocate both. */
         void *consoleFb = (wii_video_mode_choice == 0) ? Wii_Console_GetFramebuffer() : NULL;
         if (consoleFb) {
             s_framebuf[0] = consoleFb; /* already MEM_K0_TO_K1-mapped */

@@ -100,7 +100,11 @@ static void s_BeginRegistration(glconfig_t *c)
     if (!c) return;
     GXRModeObj *r = Wii_GX_GetRMode();
     c->vidWidth             = r ? (int)r->fbWidth   : 640;
+#if defined(WII_NATIVE_GX)
+    c->vidHeight            = WII_GX_LOGICAL_HEIGHT;   /* same logical size as GLimp_Init */
+#else
     c->vidHeight            = r ? (int)r->efbHeight : 480;
+#endif
     c->windowAspect         = (float)c->vidWidth / (float)c->vidHeight;
     c->colorBits            = 24;
     c->depthBits            = 24;

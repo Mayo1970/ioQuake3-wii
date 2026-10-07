@@ -91,20 +91,13 @@ static qboolean Wii_MountSD(void)
             }
             usleep(100000); /* 100 ms */
         }
-        /* SD mounted but has no /quake3 - drop its FAT cache before trying
-           USB. dvm gives every mounted disc its own cache; leaving a useless
-           SD mount alive alongside USB pays for two caches on a port where
-           that extra sbrk can starve the JIT. */
+        /* SD has no /quake3: unmount it so we don't pay for two FAT caches
+           (dvm caches per disc; the extra sbrk can starve the JIT). */
         dvmUnmountVolume("sd");
     }
 
-    /* Only pay for USB's FAT cache when SD didn't already give us a data
-       root. dvm gives every mounted device its own cache; mounting USB
-       unconditionally (as a plain dvmInit() call does) meant a USB drive
-       plugged in for unrelated reasons cost extra sbrk memory even when the
-       SD card already had the game data - on a hardware-tight port that was
-       enough to starve the JIT's malloc ("vm_powerpc compiler error: Not
-       enough memory"). */
+    /* Mount USB only if SD had no data root: an unused USB drive's FAT cache (plain dvmInit()
+       mounts all) was enough to starve the JIT ("vm_powerpc compiler error: Not enough memory"). */
     for (attempt = 0; attempt < 20; attempt++) {
         if (dvmProbeMountDiscIface("usb", &__io_usbstorage, WII_FAT_CACHE_PAGES, WII_FAT_SECTORS_PER_PAGE))
             break;
@@ -218,6 +211,8 @@ static int Wii_ScanModDirs(char names[][MAX_QPATH], int maxNames)
         if (de->d_name[0] == '.') continue;
         if (Q_stricmp(de->d_name, "baseq3") == 0) continue;
         if (Q_stricmp(de->d_name, "baseoa") == 0) continue;
+        /* Team Arena has its own build (native modules); its QVMs don't fit in memory here. */
+        if (Q_stricmp(de->d_name, "missionpack") == 0) continue;
 
         snprintf(full, sizeof(full), "%s/%s", wii_dev_root, de->d_name);
         if (stat(full, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
@@ -319,9 +314,8 @@ static void Wii_ExtractBundledZpackClassic(void)
     snprintf(destdir,  sizeof(destdir),  "%s/baseq3",              wii_dev_root);
     snprintf(destpath, sizeof(destpath), "%s/zpack-classic.pk3",   destdir);
 
-    /* Skip only if the on-disk file matches the embedded copy exactly:
-       same size (a longer file with a matching prefix is still stale) and
-       same CRC32. */
+    /* Skip only on an exact match: same size (a longer file with a matching
+       prefix is still stale) and same CRC32. */
     FILE *ef = fopen(destpath, "rb");
     if (ef) {
         long fsz = (fseek(ef, 0, SEEK_END) == 0) ? ftell(ef) : -1;
@@ -356,9 +350,8 @@ static void Wii_ExtractBundledZpackClassic(void)
 }
 #endif
 
-/* Power/reset callbacks run in IOS callback context — never exit() there
-   (blocking-in-callback hazard, and it would skip IN_Shutdown's binding
-   save). Latch a flag, same pattern as HOME; the main loop consumes it. */
+/* IOS callback context: never exit() here (blocking hazard, and it skips IN_Shutdown's
+   binding save). Latch a flag like HOME; the main loop consumes it. */
 static volatile qboolean s_power_requested = qfalse;
 static volatile qboolean s_reset_requested = qfalse;
 qboolean wii_poweroff_requested = qfalse;   /* read by Sys_Quit (wii_sys.c) */
@@ -446,10 +439,8 @@ int main(int argc, char *argv[])
     WII_DBG_PRINTF("[wii] Audio OK\n");
     boot_mark("Audio init done");
 
-    /* The -1 MB margin is JIT bump/mmap headroom. TA in interpreter mode has no
-       JIT competing for the bump, so reclaim it - closes the ~192 KB map-load
-       gap (see CLAUDE.md "TA memory-starved"). MB truncation in Wii_MEM2_Init
-       still leaves 0-1 MB of real slack on top. */
+    /* The -1 MB is JIT bump/mmap headroom. TA runs no JIT (native modules, interpreted
+       mod QVMs), so its hunk takes the whole bump. */
 #if defined(STANDALONETA) && !defined(WII_VM_NATIVE)
     u32 hunk_mb = mem2_bump_mb;
 #else
@@ -498,8 +489,11 @@ int main(int argc, char *argv[])
         "+set fraglimit 0 "
         "+set timelimit 0 "
         "+set com_logfile 2 "
-        /* vm_ui must be set before Com_Init; vm_cgame/vm_game set post-init in Wii_Input_SetCvars(). */
-#if defined(WII_VM_NATIVE)
+        /* vm_ui must be set before Com_Init; vm_cgame/vm_game set post-init in Wii_Input_SetCvars().
+           TA's 0 selects the linked-in modules (sys/wii_modules.c). */
+#if defined(WII_NATIVE_TA)
+        "+set vm_ui 0"
+#elif defined(WII_VM_NATIVE)
         "+set vm_ui 2"
 #else
         "+set vm_ui 1"

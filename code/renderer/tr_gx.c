@@ -5,10 +5,19 @@
 #include "tr_local.h"     /* Q3 types, tess global, glState, glConfig, etc. */
 /* gccore.h and libogc headers arrive via wii_platform.h (force-included) */
 #include "tr_gx.h"
+#include "wii_glimp.h"    /* Wii_GX_GetEFBHeight */
 #include <malloc.h>       /* memalign — vertex staging ring */
 
 
 gx_state_t gxState;
+
+/* TV overscan, the Xbox port's xb_* model: image at (offset) sized (640x480 + stretch) logical px.
+ * The default 20 px border keeps the HUD text inside a CRT's visible area. */
+static cvar_t *s_tvXOffset;
+static cvar_t *s_tvYOffset;
+static cvar_t *s_tvXStretch;
+static cvar_t *s_tvYStretch;
+static void gxbe_screen_xform(float *sx, float *sy, float *ox, float *oy);
 
 /* Polygon offset for decals: units = constant z bias (gxbe_load_projection),
  * factor = per-vertex slope pull (gxbe_offset_slope). GX has no polygon offset. */
@@ -282,8 +291,13 @@ void GXBE_SetDefaultState(void)
     gxState.texStride[0] = sizeof(vec2_t);
     gxState.texStride[1] = sizeof(vec2_t);
 
+    s_tvXOffset  = ri.Cvar_Get("wii_xoffset",  "20",  CVAR_ARCHIVE);
+    s_tvYOffset  = ri.Cvar_Get("wii_yoffset",  "20",  CVAR_ARCHIVE);
+    s_tvXStretch = ri.Cvar_Get("wii_xstretch", "-40", CVAR_ARCHIVE);
+    s_tvYStretch = ri.Cvar_Get("wii_ystretch", "-40", CVAR_ARCHIVE);
+
     /* Full-screen viewport so DepthRange/Clear work before the first SetViewportAndScissor.
-     * Goes through GXBE_SetViewport so the TV-border inset applies from the first frame. */
+     * Goes through GXBE_SetViewport so the overscan mapping applies from the first frame. */
     gxState.depthNear = 0.0f;
     gxState.depthFar  = 1.0f;
     GXBE_SetViewport(0, 0, glConfig.vidWidth, glConfig.vidHeight);
@@ -325,7 +339,7 @@ void GXBE_SetDefaultState(void)
     GX_SetTevOp(GX_TEVSTAGE0, GX_MODULATE);
 
     /* Scissor: full-screen (will be set properly in RB_SetGL2D). Routed through
-     * GXBE_SetScissor so the TV-border inset applies from the very first frame. */
+     * GXBE_SetScissor so the overscan mapping applies from the very first frame. */
     GXBE_SetScissor(0, 0, glConfig.vidWidth, glConfig.vidHeight);
 
     /* Keep glState.glStateBits in sync for subsequent GL_State diffs. */
@@ -347,16 +361,22 @@ void GXBE_Finish(void)
     gxbe_ring_reset();
 }
 
-/* Read one EFB Z value for flare visibility tests, top-down EFB coords.
+/* Read one EFB Z value for flare visibility tests, top-down logical coords.
    Window depth matches GL's thanks to the z-row conversion in LoadProjectionGL. */
 float GXBE_PeekDepth(int x, int y)
 {
-    u32 z = 0;
+    float sx, sy, ox, oy;
+    int   efbH = Wii_GX_GetEFBHeight();
+    u32   z = 0;
 
+    /* Centre of the logical pixel, mapped like the viewport (overscan, 240p/264p lines). */
+    gxbe_screen_xform(&sx, &sy, &ox, &oy);
+    x = (int)floorf((x + 0.5f) * sx + ox);
+    y = (int)floorf((y + 0.5f) * sy + oy);
     if (x < 0) x = 0;
-    if (x > glConfig.vidWidth - 1)  x = glConfig.vidWidth - 1;
+    if (x > glConfig.vidWidth - 1) x = glConfig.vidWidth - 1;
     if (y < 0) y = 0;
-    if (y > glConfig.vidHeight - 1) y = glConfig.vidHeight - 1;
+    if (y > efbH - 1) y = efbH - 1;
 
     /* Unconditional sync - cheap when GP's already idle, r_flares is low-frequency anyway. */
     GXBE_Finish();
@@ -562,33 +582,42 @@ void GXBE_LoadModelviewTranslatedGL(const float *gl16, const vec3_t origin)
     GXBE_LoadModelviewGL(m);
 }
 
-/* Insets a rect toward the center by r_tvborder (TV overscan safe area). Done here, not via
- * VI timing/rmode: VIDEO_Configure/rmode edits are the documented flicker trap (CLAUDE.md). */
-static void gxbe_apply_tvborder(int *x, int *y, int *w, int *h)
+/* Logical (glConfig) -> EFB: TV overscan as offset/stretch in logical px, then the line scale
+ * (240p/264p hold the 480 logical lines in fewer EFB lines). Read live, so changes apply at once. */
+static void gxbe_screen_xform(float *sx, float *sy, float *ox, float *oy)
 {
-    float b, sx, sy;
-    int insetX, insetY;
+    float lw = (float)glConfig.vidWidth;
+    float lh = (float)glConfig.vidHeight;
+    float ey = (float)Wii_GX_GetEFBHeight() / lh;
+    float xo = s_tvXOffset  ? Com_Clamp(-lw / 2, lw / 2, (float)s_tvXOffset->integer)  : 0.0f;
+    float yo = s_tvYOffset  ? Com_Clamp(-lh / 2, lh / 2, (float)s_tvYOffset->integer)  : 0.0f;
+    float xs = s_tvXStretch ? Com_Clamp(-lw / 2, lw / 2, (float)s_tvXStretch->integer) : 0.0f;
+    float ys = s_tvYStretch ? Com_Clamp(-lh / 2, lh / 2, (float)s_tvYStretch->integer) : 0.0f;
 
-    if (!r_tvborder || r_tvborder->value <= 0.0f)
-        return;
+    *sx = (lw + xs) / lw;
+    *ox = xo;
+    *sy = (lh + ys) / lh * ey;
+    *oy = yo * ey;
+}
 
-    b = r_tvborder->value;
-    if (b > 0.15f) b = 0.15f;
+/* Rounds the edges, not the sizes, so rects that touch in logical space still touch in the EFB. */
+void GXBE_MapRect(int *x, int *y, int *w, int *h)
+{
+    float sx, sy, ox, oy;
+    int   x0, y0;
 
-    insetX = (int)(glConfig.vidWidth  * b);
-    insetY = (int)(glConfig.vidHeight * b);
-    sx = (float)(glConfig.vidWidth  - 2 * insetX) / (float)glConfig.vidWidth;
-    sy = (float)(glConfig.vidHeight - 2 * insetY) / (float)glConfig.vidHeight;
-
-    *x = insetX + (int)(*x * sx);
-    *y = insetY + (int)(*y * sy);
-    *w = (int)(*w * sx);
-    *h = (int)(*h * sy);
+    gxbe_screen_xform(&sx, &sy, &ox, &oy);
+    x0 = (int)floorf(*x * sx + ox + 0.5f);
+    y0 = (int)floorf(*y * sy + oy + 0.5f);
+    *w = (int)floorf((*x + *w) * sx + ox + 0.5f) - x0;
+    *h = (int)floorf((*y + *h) * sy + oy + 0.5f) - y0;
+    *x = x0;
+    *y = y0;
 }
 
 void GXBE_SetViewport(int x, int y, int w, int h)
 {
-    gxbe_apply_tvborder(&x, &y, &w, &h);
+    GXBE_MapRect(&x, &y, &w, &h);
 
     gxState.vpX = x;  gxState.vpY = y;
     gxState.vpW = w;  gxState.vpH = h;
@@ -599,11 +628,16 @@ void GXBE_SetViewport(int x, int y, int w, int h)
 
 void GXBE_SetScissor(int x, int y, int w, int h)
 {
-    gxbe_apply_tvborder(&x, &y, &w, &h);
+    int efbW = glConfig.vidWidth;   /* logical width is the EFB width */
+    int efbH = Wii_GX_GetEFBHeight();
 
-    /* GX scissor uses absolute top-left pixel coordinates. */
+    GXBE_MapRect(&x, &y, &w, &h);
+
+    /* GX scissor uses absolute top-left pixel coordinates, kept inside the EFB. */
     if (x < 0) { w += x; x = 0; }
     if (y < 0) { h += y; y = 0; }
+    if (x + w > efbW) w = efbW - x;
+    if (y + h > efbH) h = efbH - y;
     if (w < 0) w = 0;
     if (h < 0) h = 0;
     GX_SetScissor((u32)x, (u32)y, (u32)w, (u32)h);

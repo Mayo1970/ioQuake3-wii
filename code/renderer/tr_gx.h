@@ -65,6 +65,9 @@ void GXBE_LoadOrtho2D(int vidWidth, int vidHeight);
 void GXBE_LoadIdentityModelview(void);
 void GXBE_SetViewport(int x, int y, int w, int h);
 void GXBE_SetScissor(int x, int y, int w, int h);
+/* Logical top-down rect -> EFB rect (TV overscan, 240p/264p line scale). Viewport, scissor and
+ * readbacks all use it, so the engine only ever sees logical coords. */
+void GXBE_MapRect(int *x, int *y, int *w, int *h);
 void GXBE_DepthRange(float n, float f);
 
 /* Polygon offset for decals, routed from qgl_wii.c. units = constant z bias, factor = slope pull in DrawTess. */

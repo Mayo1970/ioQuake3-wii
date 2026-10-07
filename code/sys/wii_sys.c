@@ -123,10 +123,13 @@ void *Sys_LoadDll(const char *name,
     return NULL;
 }
 
+/* TA links real game modules; wii_modules.c owns both DLL hooks there. */
+#if !defined(WII_NATIVE_TA)
 void Sys_UnloadDll(void *dllHandle)
 {
     (void)dllHandle;
 }
+#endif
 
 char **Sys_ListFiles(const char *directory, const char *extension,
                      char *filter, int *numfiles, qboolean wantsubs)
@@ -248,9 +251,8 @@ void GLimp_Init(qboolean fixedFunction)
 {
     (void)fixedFunction;
 
-    /* GLimp_Shutdown() (Wii_GX_Shutdown) tears down the GX FIFO on every
-       vid_restart; without this the GP write-gather pipe stays wired to
-       freed memory and the next draw call hangs the console. */
+    /* Wii_GX_Shutdown frees the GX FIFO on every vid_restart; without a re-init the GP
+       write-gather pipe points at freed memory and the next draw hangs the console. */
     if (!Wii_GX_Init())
         Com_Error(ERR_FATAL, "GLimp_Init: Wii_GX_Init failed");
 
@@ -259,7 +261,11 @@ void GLimp_Init(qboolean fixedFunction)
     extern glconfig_t glConfig;
 
     glConfig.vidWidth      = rmode ? (int)rmode->fbWidth   : 640;
+#if defined(WII_NATIVE_GX)
+    glConfig.vidHeight     = WII_GX_LOGICAL_HEIGHT;   /* tr_gx.c maps it onto the EFB */
+#else
     glConfig.vidHeight     = rmode ? (int)rmode->efbHeight : 480;
+#endif
     glConfig.windowAspect  = (float)glConfig.vidWidth / (float)glConfig.vidHeight;
     glConfig.colorBits     = 24;
     glConfig.depthBits     = 24;
@@ -324,9 +330,11 @@ char *Sys_SteamPath(void)             { return ""; }
 char *Sys_GogPath(void)               { return ""; }
 char *Sys_MicrosoftStorePath(void)    { return ""; }
 
+#if !defined(WII_NATIVE_TA)
 void *QDECL Sys_LoadGameDll(const char *name, vmMainProc *ep,
                               intptr_t (*sc)(intptr_t,...))
 { (void)name;(void)ep;(void)sc; return NULL; }
+#endif
 
 
 void Sys_GLimpInit(void)     { }
@@ -584,15 +592,8 @@ static inline int is_mem2_ptr(void *p)
     return mem2_base != NULL && (u8 *)p >= mem2_base;
 }
 
-/* JIT code buffers live in the MEM2 bump tail (sbrk is too tight at map load
-   to carry them). The bump itself cannot free, so freed buffers are tracked
-   in this table and reused. Every table slot is bump-backed, and because the
-   bump only ever grows, the slots are contiguous in memory - so a freed slot
-   coalesces with its freed neighbours (recovering a big buffer from several
-   small ones) and an oversized reused slot is split (returning the tail as a
-   free slot). Without split+merge the fixed slots fragmented the <1 MB tail
-   and forced memalign/sbrk fallbacks across map/mod changes. memalign
-   fallback blocks are never entered into the table. */
+/* JIT code buffers reuse freed MEM2-bump slots (sbrk is too tight at map load). Slots are contiguous, so
+   free neighbours merge and oversized reuses split; else the <1 MB tail fragments. memalign blocks never enter. */
 #define WII_VMCODE_SLOTS  16
 #define WII_VMCODE_SPLIT  8192   /* keep a split tail only if it is this big */
 static struct {
@@ -708,7 +709,9 @@ static u32   mem2_left = 0;
 
 #if defined(STANDALONETA)
 #define MEM2_BUMP_MAX    (40u * 1024u * 1024u)
-#define SBRK_RESERVE     (18u * 1024u * 1024u)  /* zone(8)+sound(6,soundMegs=2)+overhead(4) */
+/* zone(8)+sound(6)+overhead(4), plus 9 for the ~8.4 MB of linked-in modules that left
+   arena1; the hunk no longer holds the ~12 MB of TA QVM data/code. */
+#define SBRK_RESERVE     ((18u + 9u) * 1024u * 1024u)
 #else
 #define MEM2_BUMP_SIZE   (33u * 1024u * 1024u)
 #endif

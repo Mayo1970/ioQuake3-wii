@@ -569,8 +569,8 @@ void RB_BeginDrawingView (void) {
 	// clip to the plane of the portal
 	if ( backEnd.viewParms.isPortal ) {
 #if defined(WII_NATIVE_GX)
-		/* GX has no user clip planes - oblique near-plane projection instead,
-		 * for this portal view only (next view reloads the plain one). */
+		/* GX has no clip planes and can't take an oblique projection, so GXBE_DrawTess
+		 * clips against this eye-space plane on the CPU (the next view turns it off). */
 		float	plane[4];
 		float	plane2[4];
 		float	eyePlane[4];
@@ -590,7 +590,7 @@ void RB_BeginDrawingView (void) {
 		eyePlane[2] = -plane2[0];
 		eyePlane[3] =  plane2[3];
 
-		GXBE_LoadProjectionObliqueGL( backEnd.viewParms.projectionMatrix, eyePlane );
+		GXBE_SetClipPlane( eyePlane );
 #else
 		float	plane[4];
 		GLdouble	plane2[4];
@@ -610,7 +610,9 @@ void RB_BeginDrawingView (void) {
 		qglEnable (GL_CLIP_PLANE0);
 #endif /* WII_NATIVE_GX */
 	} else {
-#if !defined(WII_NATIVE_GX)
+#if defined(WII_NATIVE_GX)
+		GXBE_SetClipPlane( NULL );
+#else
 		qglDisable (GL_CLIP_PLANE0);
 #endif
 	}

@@ -926,9 +926,10 @@ image_t *R_CreateImage( const char *name, byte *pic, int width, int height,
 
 #if defined(WII_NATIVE_GX)
 	/* Upload32 does the real GX upload at its level-0 point, with the final
-	 * scaled buffer, not this original full-size pic. Slot/wrap smuggled below. */
+	 * scaled buffer, not this original full-size pic. Slot/wrap/format hints smuggled below. */
 	s_gxUploadTexnum = (int)image->texnum;
 	s_gxUploadWrap   = glWrapClampMode;
+	GXBE_SetUploadImage( name, (int)flags );
 #endif
 
 	Upload32( (unsigned *)pic, image->width, image->height,

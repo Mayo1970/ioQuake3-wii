@@ -11,6 +11,7 @@ Five build flavors are produced from the same source tree:
 |---|---|---|---|
 | ioQuake3 (Q3A) | `apps/ioquake3/` | `build/boot.dol` | `baseq3` |
 | Open Arena | `apps/openarena/` | `build_oa/boot.dol` | `baseoa` |
+| Team Arena | `apps/teamarena/` | `build_ta/boot.dol` | `baseq3` + `missionpack` |
 | CLASSIC (Dreamcast crossplay) | `apps/ioquake3-classic/` | `build_classic/boot.dol` | `baseq3` (pak0–pak2 only) |
 | Mod Selector | `apps/ioquake3-modselect/` | `build_modsel/boot.dol` | `baseq3` + any picked mod folder |
 
@@ -26,6 +27,8 @@ Five build flavors are produced from the same source tree:
 - USB keyboard and mouse support
 - Per-controller button binding persistence across reboots
 - Quake III Arena and Open Arena build flavors
+- **Team Arena** build flavor: works on real hardware, including the RoQ
+  cinematics and pure online servers. Included in future releases.
 - **CLASSIC** build flavor: crossplay with real Dreamcast Q3A (protocol 43,
   1.16n-era) servers
 - **Mod Selector** build flavor: boot-time menu to pick any `baseq3`-compatible
@@ -68,25 +71,23 @@ devkitPro MSYS2 shell.
 |---|---|
 | `make dol` | Q3A release: `build/boot.dol` |
 | `make oa` | Open Arena release: `build_oa/boot.dol` |
+| `make ta` | Team Arena release: `build_ta/boot.dol` |
 | `make classic` | CLASSIC (Dreamcast crossplay) release: `build_classic/boot.dol` |
 | `make modsel` | Mod Selector release: `build_modsel/boot.dol` |
 | `make debug` | Q3A debug build with device-root logging: `build/boot.dol` |
 | `make oa-debug` | OA debug build with device-root logging: `build_oa/boot.dol` |
+| `make ta-debug` | TA debug build with device-root logging: `build_ta/boot.dol` |
 | `make classic-debug` | CLASSIC debug build with device-root logging: `build_classic/boot.dol` |
 | `make modsel-debug` | Mod Selector debug build with device-root logging: `build_modsel/boot.dol` |
-| `make all-flavors` | Q3A + OA + CLASSIC release builds |
+| `make all-flavors` | Q3A + OA + TA + CLASSIC release builds |
 | `make clean` | Remove build output directories and copied zlib headers |
-
-A Team Arena flavor (`make ta`, `make ta-debug`) also builds, and
-`make all-flavors` includes it, but it remains memory-starved and unstable on
-real hardware — not recommended for regular use.
 
 ### Optional build flags
 
 | Flag | Default | Description |
 |---|---|---|
 | `WII_MAXFPS=30` | `60` | Lower the in-game framerate cap if 60 FPS is unstable on a target console. Menus and loading run at 60 regardless. |
-| `WII_VM_NATIVE=0` | `1` | Use the bytecode interpreter instead of the native-PPC QVM JIT. The interpreter can need several more MB of hunk and may OOM on larger maps. |
+| `WII_VM_NATIVE=0` | `1` | Use the bytecode interpreter instead of the native-PPC QVM JIT. The interpreter can need several more MB of hunk and may OOM on larger maps. OA and TA always use `0`. |
 | `WII_FSGAME=modname` | empty | Boot directly into a mod by setting `fs_game`. Superseded by `make modsel` for picking a mod at boot instead of build time. |
 | `WII_OPENGX=1` | `0` | Build the legacy OpenGX renderer instead of native GX. Run `make clean` before switching renderer backends. |
 | `WII_NATIVE_GX=0` | `1` | Equivalent OpenGX fallback override. Run `make clean` before switching. |
@@ -333,6 +334,21 @@ safely and has no effect.
 | ZR | Click |
 | D-pad | Arrow keys |
 
+## Team Arena Build
+
+`make ta` builds the Team Arena flavor. It needs `baseq3/` plus
+`<dev>:/quake3/missionpack/pak*.pk3` and installs to `<dev>:/apps/teamarena/`.
+It works on real hardware, including the RoQ cinematics and pure online
+servers, and is included in future releases.
+
+Team Arena's own game code (cgame, game and ui) is compiled to PowerPC and
+linked into the DOL instead of running as QVM bytecode. As QVMs it needed
+about 12 MB of hunk; as native code it takes about 8.4 MB of static memory,
+fixed at link time. This is what makes Team Arena fit. Mods that run on top of
+Team Arena still load their own QVMs, through the interpreter. On a pure
+server, the built-in code runs only when the server uses the stock Team Arena
+QVMs; otherwise the server's QVM loads.
+
 ## CLASSIC Build
 
 `make classic` builds a separate flavor for crossplay with original Sega
@@ -347,7 +363,8 @@ behave, and nothing about it affects those other flavors.
 
 `make modsel` builds a flavor that shows a boot-time menu instead of always
 loading `baseq3`. It scans `<dev>:/quake3/` for any folder (other than
-`baseq3`) that contains at least one `.pk3` file and lets you pick one with
+`baseq3`, `baseoa` and `missionpack`, which have their own builds) that
+contains at least one `.pk3` file and lets you pick one with
 the d-pad before the engine starts. Picking "baseq3 only" boots normally.
 This replaces having to bake a mod name in with `WII_FSGAME` at build time.
 
@@ -355,30 +372,59 @@ This replaces having to bake a mod name in with `WII_FSGAME` at build time.
 
 ## Memory Budget
 
-| Region | Size | Location | Notes |
-|---|---:|---|---|
-| Hunk (`com_hunkMegs`) | about 32 MB for Q3A/OA; dynamic for TA | MEM2 bump | Q3A/OA reserve up to a 33 MB MEM2 bump, then give hunk one MB less. TA uses `min(Arena2 - 18 MB, 40 MB)` for the MEM2 bump to leave sbrk headroom. |
-| Zone (`com_zoneMegs`) | 8 MB | sbrk | Dynamic allocations and zlib inflate. |
-| Sound (`com_soundMegs`) | 2 MB | sbrk | Audio pool; mono sounds are stored ADPCM 4:1 on Wii. |
-| GX FIFO | 256 KB | MEM1 | Command buffer. |
-| Framebuffers | 2 XFBs | MEM1 | Allocated from the selected video mode; smaller in 240p/264p modes. |
-| Stack | 512 KB | MEM1 | Overridden from the small libogc default. |
+The Wii has 88 MB of RAM: 24 MB of MEM1 and 64 MB of MEM2. IOS reserves part
+of MEM2, so about 52 MB of MEM2 (Arena2) is left for the game under IOS58; the
+exact amount varies by IOS. At boot, `Wii_MEM2_Init` measures Arena2 and
+reserves a bump region at its top for the hunk. Everything else comes from the
+normal sbrk heap: the MEM1 that the DOL image does not use, plus the MEM2
+below the bump.
 
-Large `calloc` requests are wrapped and served from the MEM2 bump when
-possible. Smaller heap allocations stay in the normal sbrk arena.
+| Region | Q3A, OA, CLASSIC, Mod Selector | Team Arena | Location |
+|---|---:|---:|---|
+| MEM2 bump | 33 MB | `min(Arena2 - 27 MB, 40 MB)` | MEM2, top |
+| Hunk (`com_hunkMegs`) | 32 MB | 25 MB (at 52 MB Arena2) | MEM2 bump |
+| sbrk heap in MEM2 | about 19 MB (at 52 MB Arena2) | 27 MB | MEM2, below the bump |
+| Zone (`com_zoneMegs`) | 8 MB | 8 MB | sbrk |
+| Sound pool (`com_soundMegs 2`) | about 6 MB | about 6 MB | sbrk |
+| Native game code (cgame, game, ui) | none | about 8.4 MB | MEM1, DOL image |
+| SD/USB read cache | 512 KB (Q3A release), 128 KB (others) | 128 KB | sbrk |
+| GX FIFO | 256 KB | 256 KB | MEM1 |
+| Framebuffers | 2 XFBs | 2 XFBs | MEM1 |
+| Stack | 512 KB | 512 KB | MEM1 |
 
-The default `WII_VM_NATIVE=1` build moves compiled VM code off the hunk through
-tracked `mmap`/`munmap` reuse slots. It adds a short compile stall at VM load
-time and does not improve framerate, but it avoids interpreter-mode hunk OOMs
-on larger maps. The JIT compiler's transient allocations use a 512 KB chunked
-arena so large OA/TA QVMs do not burn sbrk on allocator overhead.
+- **Non-TA builds** use a fixed 33 MB bump (less only if Arena2 is smaller).
+  The hunk gets the bump minus 1 MB; that 1 MB is headroom for JIT code
+  buffers.
+- **Team Arena** keeps 27 MB of MEM2 for sbrk: 18 MB for zone, sound and
+  overhead such as Bluetooth/WPAD, plus 9 MB to replace the MEM1 that its
+  native game code takes. It runs no JIT, so the hunk gets the whole bump.
+- **Textures** are stored as 16-bit RGB565/RGB5A3, or as 4 bpp CMPR
+  (DXT1-style) for opaque art, encoded on the CPU at load time. Textures with
+  alpha stay 16-bit (GX has no DXT5) and lightmaps are never compressed.
+  Texture memory comes from sbrk and is freed on map change.
+- **Sounds** are stored ADPCM 4:1 (mono), so a full bot match fits the pool
+  without mid-game reloads.
+
+Large `calloc` requests (16 MB or more) are served from the MEM2 bump; this
+is how the hunk lands there. Smaller heap allocations stay in sbrk.
+
+Q3A, CLASSIC and Mod Selector run QVMs with the native-PPC JIT
+(`WII_VM_NATIVE=1`). The compiled code lives in the MEM2 bump through tracked
+`mmap`/`munmap` reuse slots, not on the hunk, so large maps that run out of
+hunk under the interpreter still load. The JIT adds a short compile stall at
+each map load and does not improve framerate. Open Arena always uses the
+interpreter: three resident JIT code buffers for its larger QVMs leave too
+little memory at map load. Team Arena runs its own game code natively and
+interprets only mod QVMs.
 
 ## Code Layout
 
 - `code/sys/`, `code/audio/`, `code/input/`, `code/renderer/`: Wii port layer
 - `code/qcommon/`, `code/client/`, `code/server/`, `code/botlib/`: vendored and patched ioQ3 engine code
 - `code/renderergl1/`, `code/renderercommon/`: renderer frontend shared with the Wii backends
-- `code/cgame/`, `code/game/`, `code/ui/`: VM-side source; engine builds use the headers, while shipped `.pk3` files provide QVM bytecode
+- `code/cgame/`, `code/game/`, `code/ui/`: VM-side source. Q3A, OA, CLASSIC and Mod Selector builds use only the headers; their QVM bytecode comes from the `.pk3` files. The TA build compiles this code to PowerPC and links it into the DOL
+- `code/sys/wii_modules.c`, `code/sys/wii_module.ld`: TA native game module loader and link script
+- `ui/menudef.h`: menu definitions header shared by the game code
 - `code/sys/wii_platform.h`: force-included before every translation unit for Wii platform identity and memory/network tuning
 - `libs/opengx/`: prebuilt patched OpenGX library and headers for the fallback renderer
 - `libs/wiidrc/`: Wii U GamePad support library and headers
@@ -390,9 +436,6 @@ arena so large OA/TA QVMs do not burn sbrk on allocator overhead.
 - Browsing many player models before starting a match can exhaust hunk memory
   later in-game and trigger "Memory is low. Using deferred model." The hunk is
   a bump allocator and menu-loaded model meshes are not freed until a map load.
-- Team Arena has the tightest memory budget. It has its own build flavor and
-  dynamic MEM2 bump sizing, but it remains memory-starved and unstable on real
-  hardware.
 - Wired USB HID gamepads in the Xbox family (One/Series/360) are recognized by
   VID/PID but crash the console on their first real input report — a
   libogc/IOS limitation of the vendor-specific USB class those pads use, not

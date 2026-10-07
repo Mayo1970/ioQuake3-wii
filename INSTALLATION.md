@@ -12,6 +12,7 @@ or USB drive.
 |---|---|---|
 | **ioQuake3** | Quake III Arena | Full gameplay, bots, online/LAN multiplayer, mods via `fs_game` |
 | **Open Arena** | Free/open Q3A-compatible game | Same engine features, uses free OA game data — no retail purchase needed |
+| **Team Arena** | The Quake III: Team Arena expansion | Team Arena menus, cinematics and gameplay; online play, including pure servers |
 | **CLASSIC** | Q3A speaking the original 1999 protocol | Crossplay with Sega Dreamcast community servers; no mod support, pak0–pak2 only |
 | **Mod Selector** | Q3A with a boot-time mod picker | Scans the data device for extra mod folders and lets you choose one with the d-pad instead of hardcoding it into the build |
 
@@ -21,6 +22,8 @@ Buy the base game(s) legally, then copy the `.pk3` files from your
 install/disc into the paths below.
 
 - **Quake III Arena** (needed for ioQuake3, Team Arena, CLASSIC, and Mod Selector): [Here](https://www.gog.com/en/game/quake_iii_arena)
+- **Quake III: Team Arena** (needed for Team Arena): included with the GOG
+  Quake III Arena above
 - **Open Arena**: [Here](https://openarena.ws/)
 - **Dreamcast community map pack** (optional, for CLASSIC): [Here](https://lvlworld.com/download/id:999)
 
@@ -43,6 +46,9 @@ no SD slot.
 |   |-- openarena/
 |   |   |-- boot.dol       <- build_oa/boot.dol
 |   |   `-- meta.xml
+|   |-- teamarena/
+|   |   |-- boot.dol       <- build_ta/boot.dol
+|   |   `-- meta.xml
 |   |-- ioquake3-classic/
 |   |   |-- boot.dol       <- build_classic/boot.dol
 |   |   `-- meta.xml
@@ -50,7 +56,7 @@ no SD slot.
 |       |-- boot.dol       <- build_modsel/boot.dol
 |       `-- meta.xml
 `-- quake3/
-    |-- baseq3/            <- Q3A data (also Team Arena, CLASSIC: pak0-pak2.pk3 only)
+    |-- baseq3/            <- Q3A data (also used by Team Arena; CLASSIC reads pak0-pak2.pk3 only)
     |   |-- pak0.pk3
     |   |-- pak1.pk3
     |   |-- ...
@@ -58,6 +64,10 @@ no SD slot.
     |-- baseoa/            <- Open Arena data
     |   |-- pak0.pk3
     |   `-- ...
+    |-- missionpack/       <- Team Arena data
+    |   |-- pak0.pk3
+    |   |-- ...
+    |   `-- pak3.pk3
     `-- <modname>/         <- any extra mod folder, picked at boot by Mod Selector
         `-- *.pk3
 ```
@@ -85,6 +95,22 @@ No `baseq3` needed:
 ```
 <dev>:/quake3/baseoa/pak0.pk3 …
 ```
+
+## Team Arena
+
+App folder: `apps/teamarena/`
+
+Needs the Q3A data plus the Team Arena data. The Team Arena folder must be
+named `missionpack`:
+
+```
+<dev>:/quake3/baseq3/pak0.pk3 … pak8.pk3
+<dev>:/quake3/missionpack/pak0.pk3 … pak3.pk3
+```
+
+The app always starts Team Arena, so you don't need to set `fs_game`.
+Older releases don't include a Team Arena `boot.dol`. Use a newer release, or
+build it with `make ta` (see the main [README.md](README.md)).
 
 ## CLASSIC (Dreamcast crossplay)
 
@@ -119,16 +145,17 @@ the boot menu:
 <dev>:/quake3/<modname>/*.pk3
 ```
 
-Any folder under `<dev>:/quake3/` (other than `baseq3`) containing at least
-one `.pk3` is listed at boot; pick "baseq3 only" to boot normally.
+Any folder under `<dev>:/quake3/` (other than `baseq3`, `baseoa` and
+`missionpack`, which have their own builds) containing at least one `.pk3` is
+listed at boot; pick "baseq3 only" to boot normally.
 
 ---
 
 ## Installing
 
 Every [release](https://github.com/Mayo1970/ioQuake3-wii/releases) includes a
-prebuilt `boot.dol` for each build — no need to compile anything yourself
-unless you want to.
+prebuilt `boot.dol` for each build (Team Arena starting with the next release)
+— no need to compile anything yourself unless you want to.
 
 1. Download the `boot.dol` for the build you want (or build it yourself, see
    the main [README.md](README.md)).
@@ -145,5 +172,5 @@ unless you want to.
 If a build misbehaves after switching between builds or changing settings
 (stuck at a stale framerate cap, wrong sound pool size, or other unexpected
 behavior), delete that build's config on the device
-(`<dev>:/quake3/baseq3/q3config.cfg`, `baseoa/oaconfig.cfg`) and let it regenerate — `CVAR_ARCHIVE`
+(`<dev>:/quake3/baseq3/q3config.cfg`, `baseoa/oaconfig.cfg`, `missionpack/q3config.cfg`) and let it regenerate — `CVAR_ARCHIVE`
 settings persist across rebuilds and can silently override the new defaults.

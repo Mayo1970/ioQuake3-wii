@@ -4,6 +4,7 @@
 
 #include "tr_local.h"
 #include "tr_gx.h"
+#include "wii_glimp.h" /* Wii_GX_GetEFBHeight */
 #include <malloc.h>    /* memalign, free */
 #include <math.h>
 
@@ -599,37 +600,45 @@ void GXBE_TexSubImage2D(int texnum, int fullW, int fullH, const byte *data)
 
 void GXBE_ReadPixelsRGB(int x, int y, int w, int h, int padlen, byte *dst)
 {
-    int  top, cx, ctop, cw, ch, dstWd, tilesW;
-    int  ox, oy, i, j, size;
-    u8  *buf;
+    int  efbW = glConfig.vidWidth, efbH = Wii_GX_GetEFBHeight();
+    int  rx, ry, rw, rh, cx, ctop, cw, ch, dstWd, tilesW;
+    int  i, j, size;
+    u8  *buf = NULL;
 
     if (w <= 0 || h <= 0)
         return;
 
-    /* GL bottom-left origin -> EFB top-down line of the region's top row */
-    top = glConfig.vidHeight - (y + h);
+    /* GL bottom-left logical rect -> top-down -> EFB rect; output samples it nearest-neighbour,
+     * which is 1:1 when the mapping is identity (no overscan border, 480-line mode). */
+    rx = x;
+    ry = glConfig.vidHeight - (y + h);
+    rw = w;
+    rh = h;
+    GXBE_MapRect(&rx, &ry, &rw, &rh);
 
-    /* EFB copy requires even coords/dims; widen to satisfy and track offset. */
-    cx   = x & ~1;
-    ctop = top & ~1;
-    cw   = (w + (x - cx) + 1) & ~1;
-    ch   = (h + (top - ctop) + 1) & ~1;
-    ox   = x - cx;
-    oy   = top - ctop;
-    if (cx + cw > glConfig.vidWidth)   cw = (glConfig.vidWidth - cx) & ~1;
-    if (ctop + ch > glConfig.vidHeight) ch = (glConfig.vidHeight - ctop) & ~1;
+    /* EFB copy requires even coords/dims inside the EFB. */
+    cx   = (rx < 0 ? 0 : rx) & ~1;
+    ctop = (ry < 0 ? 0 : ry) & ~1;
+    cw   = ((rx + rw > efbW ? efbW : rx + rw) - cx + 1) & ~1;
+    ch   = ((ry + rh > efbH ? efbH : ry + rh) - ctop + 1) & ~1;
+    if (cx + cw > efbW)   cw = (efbW - cx) & ~1;
+    if (ctop + ch > efbH) ch = (efbH - ctop) & ~1;
 
     dstWd  = (cw + 3) & ~3;
     tilesW = dstWd >> 2;
     size   = tilesW * ((ch + 3) >> 2) * 64;
 
-    buf = memalign(32, size);
-    if (!buf) {
-        static qboolean s_warned;
-        if (!s_warned) {
-            s_warned = qtrue;
-            ri.Printf(PRINT_WARNING, "GXBE_ReadPixelsRGB: memalign(%d) failed\n", size);
+    if (rw > 0 && rh > 0 && cw > 0 && ch > 0) {
+        buf = memalign(32, size);
+        if (!buf) {
+            static qboolean s_warned;
+            if (!s_warned) {
+                s_warned = qtrue;
+                ri.Printf(PRINT_WARNING, "GXBE_ReadPixelsRGB: memalign(%d) failed\n", size);
+            }
         }
+    }
+    if (!buf) {   /* out of memory, or the rect lies outside the EFB */
         for (j = 0; j < h; j++)
             Com_Memset(dst + j * (w * 3 + padlen), 0, w * 3);
         return;
@@ -646,16 +655,23 @@ void GXBE_ReadPixelsRGB(int x, int y, int w, int h, int padlen, byte *dst)
     GX_PixModeSync();
     GX_DrawDone();               /* wait for the copy to reach main memory */
 
-    /* De-tile into GL bottom-up RGB rows */
+    /* De-tile into GL bottom-up RGB rows, sampling each output pixel's centre in the EFB rect. */
     for (j = 0; j < h; j++) {
-        int       gy      = oy + (h - 1 - j);     /* EFB row, top-down */
+        int       gy      = ry + (2 * (h - 1 - j) + 1) * rh / (2 * h);   /* EFB row, top-down */
         byte     *out     = dst + j * (w * 3 + padlen);
-        const u8 *tileRow = buf + (gy >> 2) * tilesW * 64 + (gy & 3) * 8;
+        const u8 *tileRow;
+
+        gy = (gy < ctop ? ctop : gy > ctop + ch - 1 ? ctop + ch - 1 : gy) - ctop;
+        tileRow = buf + (gy >> 2) * tilesW * 64 + (gy & 3) * 8;
 
         for (i = 0; i < w; i++) {
-            int       gx   = ox + i;
-            const u8 *tile = tileRow + (gx >> 2) * 64;
-            int       t    = (gx & 3) * 2;
+            int       gx   = rx + (2 * i + 1) * rw / (2 * w);
+            const u8 *tile;
+            int       t;
+
+            gx   = (gx < cx ? cx : gx > cx + cw - 1 ? cx + cw - 1 : gx) - cx;
+            tile = tileRow + (gx >> 2) * 64;
+            t    = (gx & 3) * 2;
 
             *out++ = tile[t + 1];        /* R (from the A,R half-tile) */
             *out++ = tile[32 + t];       /* G (from the G,B half-tile) */
