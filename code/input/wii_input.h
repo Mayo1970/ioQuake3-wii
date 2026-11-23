@@ -7,3 +7,4 @@ void     Wii_Input_SetCvars(void);
 void     Wii_Input_Frame(void);
 void     Wii_Input_Shutdown(void);
 qboolean Wii_Input_HomePressed(void);
+qboolean Wii_Input_AimAssistBlocked(void);

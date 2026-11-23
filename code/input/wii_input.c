@@ -213,6 +213,8 @@ static qboolean       s_wm_plus_prev   = qfalse;
 static qboolean       s_drc_plus_prev  = qfalse;
 static qboolean       s_usb_start_prev = qfalse;
 static int            s_active_ctrl_type = -1;
+static qboolean       s_kb_inited        = qfalse;
+static qboolean       s_mouse_inited     = qfalse;
 
 /* Raw bind-capture layer (menus only, see CLAUDE.md): holding the modifier emits in-game JOY
  * codes so the Controls menu can bind pad buttons. Modifier codes avoid ENTER-like K_JOY1-4. */
@@ -536,6 +538,44 @@ static void SetDRCBindings(void)
 }
 #endif
 
+/* Read by cl_input.c: IR aim (bare Wiimote / Nunchuk) and a USB mouse never get aim assist. */
+qboolean Wii_Input_AimAssistBlocked(void)
+{
+    if (s_active_ctrl_type == CTRL_TYPE_WIIMOTE)
+        return qtrue;
+    return (s_mouse_inited && MOUSE_IsConnected()) ? qtrue : qfalse;
+}
+
+static qboolean s_aim_combo_held = qfalse;
+
+/* Two-button aim-assist toggle (in-game). Returns qtrue while the combo owns both
+   buttons; the caller then reports them released until both are let go. */
+static qboolean AimAssistCombo(qboolean a, qboolean b)
+{
+    static int last_mode = 1;
+    int mode;
+
+    if (s_aim_combo_held) {
+        if (!a && !b)
+            s_aim_combo_held = qfalse;
+        return s_aim_combo_held;
+    }
+    if (!a || !b || Wii_Input_AimAssistBlocked())
+        return qfalse;
+
+    mode = (int)Cvar_VariableValue("cl_aimAssist");
+    if (mode > 0) {
+        last_mode = mode;
+        Cvar_Set("cl_aimAssist", "0");
+        Com_Printf("DISABLED AIM ASSIST\n");
+    } else {
+        Cvar_Set("cl_aimAssist", va("%d", last_mode));
+        Com_Printf("ENABLED AIM ASSIST\n");
+    }
+    s_aim_combo_held = qtrue;
+    return qtrue;
+}
+
 static void GC_Input_Frame(void)
 {
     int i;
@@ -589,8 +629,12 @@ static void GC_Input_Frame(void)
 
         /* Through InjectKey so key_held[] tracks triggers: ReleaseAllKeys can release them,
            and a still-held trigger re-asserts the next frame. */
-        InjectKey(K_JOY_LTRIG, l_ana > TRIGGER_THRESHOLD ? qtrue : qfalse);
-        InjectKey(K_JOY_RTRIG, r_ana > TRIGGER_THRESHOLD ? qtrue : qfalse);
+        qboolean l_dn = l_ana > TRIGGER_THRESHOLD ? qtrue : qfalse;
+        qboolean r_dn = r_ana > TRIGGER_THRESHOLD ? qtrue : qfalse;
+        if (AimAssistCombo(l_dn, r_dn))
+            l_dn = r_dn = qfalse;
+        InjectKey(K_JOY_LTRIG, l_dn);
+        InjectKey(K_JOY_RTRIG, r_dn);
 
         short ax_lx = GC_FilterAxis(lx, STICK_DEADZONE);
         short ax_ly = GC_FilterAxis(ly, STICK_DEADZONE);
@@ -752,9 +796,14 @@ static void CC_Input_Frame(WPADData *data, qboolean in_game)
             s_accum_x = s_accum_y = 0.0f;
         }
     } else {
+        u32 held = data->btns_h;
+        if (AimAssistCombo((held & WPAD_CLASSIC_BUTTON_ZL) ? qtrue : qfalse,
+                           (held & WPAD_CLASSIC_BUTTON_ZR) ? qtrue : qfalse))
+            held &= ~(u32)(WPAD_CLASSIC_BUTTON_ZL | WPAD_CLASSIC_BUTTON_ZR);
+
         for (i = 0; i < (int)CC_BTN_COUNT; i++)
             InjectKey(s_cc_buttons[i].q3key,
-                      (data->btns_h & s_cc_buttons[i].bit) ? qtrue : qfalse);
+                      (held & s_cc_buttons[i].bit) ? qtrue : qfalse);
 
         /* Left stick -> strafe / forward */
         float lmag = cc->ljs.mag;
@@ -1205,9 +1254,6 @@ static void USBPad_Input_Frame(qboolean in_game)
         s_old_axis[3] = pitch;
     }
 }
-
-static qboolean s_kb_inited  = qfalse;
-static qboolean s_mouse_inited = qfalse;
 
 static int KB_SymToQ3Key(u16 sym)
 {
